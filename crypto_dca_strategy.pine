@@ -82,7 +82,7 @@ trendBearish = trendMethod == "EMA" ? (emaFastLine < emaSlowLine and close < ema
                supertrendBearish
 
 // ADX for Trend Strength
-[diPlus, diMinus, adx] = ta.dmi(14, adxThreshold)
+[diPlus, diMinus, adx] = ta.dmi(14, 14)
 strongTrend = adx > adxThreshold
 
 // RSI
@@ -273,8 +273,11 @@ if useTakeProfitLevels and strategy.position_size != 0
         tp2Price = strategy.position_avg_price * (1 + tp2Percent / 100)
         tp3Price = strategy.position_avg_price * (1 + tp3Percent / 100)
         
-        strategy.exit("TP1 Long", limit=tp1Price, qty_percent=30)
-        strategy.exit("TP2 Long", limit=tp2Price, qty_percent=30)
+        tp1Qty = posSize * 0.30
+        tp2Qty = posSize * 0.30
+        
+        strategy.exit("TP1 Long", limit=tp1Price, qty=tp1Qty)
+        strategy.exit("TP2 Long", limit=tp2Price, qty=tp2Qty)
         strategy.exit("TP3 Long", limit=tp3Price)
     
     if strategy.position_size < 0
@@ -282,8 +285,11 @@ if useTakeProfitLevels and strategy.position_size != 0
         tp2Price = strategy.position_avg_price * (1 - tp2Percent / 100)
         tp3Price = strategy.position_avg_price * (1 - tp3Percent / 100)
         
-        strategy.exit("TP1 Short", limit=tp1Price, qty_percent=30)
-        strategy.exit("TP2 Short", limit=tp2Price, qty_percent=30)
+        tp1Qty = posSize * 0.30
+        tp2Qty = posSize * 0.30
+        
+        strategy.exit("TP1 Short", limit=tp1Price, qty=tp1Qty)
+        strategy.exit("TP2 Short", limit=tp2Price, qty=tp2Qty)
         strategy.exit("TP3 Short", limit=tp3Price)
 
 // Trend Reversal Exit
