@@ -1,6 +1,6 @@
 # Professional Crypto Trading Strategies for TradingView
 
-This repository contains two professional Pine Script strategies designed for cryptocurrency futures trading, optimized for different timeframes and trading styles.
+This repository contains three professional Pine Script strategies designed for cryptocurrency futures trading, optimized for different timeframes and trading styles.
 
 ## 📊 Strategies Overview
 
@@ -13,6 +13,11 @@ This repository contains two professional Pine Script strategies designed for cr
 **Best for:** 4H, 1D, 1W timeframes  
 **Trading Style:** Swing trading with position holding for days/weeks  
 **Risk Profile:** Higher risk per trade, lower frequency, better risk/reward
+
+### 3. Crypto DCA Strategy (`crypto_dca_strategy.pine`) ⭐ NEW
+**Best for:** 15m, 1H, 4H, 1D timeframes  
+**Trading Style:** Dollar Cost Averaging with multiple entries based on trend  
+**Risk Profile:** Pyramiding into positions, controlled risk per level, excellent for trending markets
 
 ---
 
@@ -138,12 +143,76 @@ The strategy uses a confirmation system requiring multiple signals:
 
 ---
 
+## 💰 DCA Strategy Features
+
+### What is DCA?
+Dollar Cost Averaging (DCA) is a strategy where you enter multiple positions at different price levels as the trend develops. This strategy pyramids into positions when conditions are favorable, allowing you to build larger positions in strong trends while managing risk.
+
+### Core Features
+- **Multiple Entry Levels** (2-10 DCA levels configurable)
+- **Three DCA Modes:**
+  - **Trend Following:** Add on pullbacks in trending markets (best)
+  - **Mean Reversion:** Add as price moves against you (traditional DCA)
+  - **Hybrid:** Combination approach with strong trend confirmation
+- **Flexible Trend Detection** (EMA, SMA, or Supertrend)
+- **Position Size Scaling** (optional increase per level)
+- **Global Stop Loss** for all DCA levels combined
+- **Multiple Take Profit Levels** (30% at TP1, 30% at TP2, 40% at TP3)
+
+### DCA Entry Logic
+
+**Trend Following Mode (Recommended):**
+- Initial entry when strong trend is confirmed
+- Additional entries on pullbacks within the trend
+- For LONG: Adds when price dips 2% from last entry (configurable)
+- For SHORT: Adds when price rallies 2% from last entry
+- Maximum 5 levels (configurable)
+- RSI filter ensures not adding at extremes
+
+**Mean Reversion Mode:**
+- Traditional DCA: adds as price moves against position
+- Higher risk but averages down/up the position
+- Best in ranging markets that eventually trend
+
+**Hybrid Mode:**
+- Requires strong trend confirmation (ADX)
+- Only adds when momentum still favorable (MACD)
+- More selective entries than trend following
+
+### Risk Management
+- **Risk per DCA Level:** 1% default (each additional entry risks another 1%)
+- **Global Stop Loss:** 5% from average entry (protects entire position)
+- **Position Sizing:** Can scale up each level (1.5x multiplier default)
+- **Maximum Levels:** Prevents over-leveraging
+- **Take Profit Levels:** Scales out at 3%, 6%, and 10% profit
+
+### Visual Features
+- Average entry price line (dashed)
+- Entry markers (large triangle for initial, small circles for DCA)
+- Real-time dashboard showing:
+  - Current DCA levels used
+  - Average entry price
+  - Next DCA trigger price
+  - Current P&L
+  - Trend strength and direction
+  - Take profit targets
+  - Global stop loss level
+
+### Best Use Cases
+✅ Strong trending markets (crypto bull/bear runs)  
+✅ High timeframe trades (1H, 4H, Daily)  
+✅ Reducing timing risk by averaging in  
+✅ Building larger positions systematically  
+✅ Capturing extended trends
+
+---
+
 ## 🚀 How to Use
 
 ### Installation
 1. Open [TradingView](https://www.tradingview.com)
 2. Open the Pine Editor (Alt + E)
-3. Copy the entire content of either strategy file
+3. Copy the entire content of your chosen strategy file
 4. Paste into Pine Editor
 5. Click "Add to Chart"
 
@@ -159,6 +228,22 @@ Risk/Reward: 2:1
 Use ATR for SL: Yes
 Use Time Filter: Yes
 Use HTF Filter: Yes (15m chart)
+```
+
+#### For DCA Strategy:
+```
+Timeframe: 1H or 4H (best for trend following)
+Asset: Any major crypto (BTC, ETH, major alts)
+DCA Mode: Trend Following
+Max DCA Levels: 5
+DCA Entry Deviation: 2%
+Risk Per Level: 1%
+Increase Position Size: Yes (1.5x multiplier)
+Global Stop Loss: 5%
+Use Take Profit Levels: Yes (3%, 6%, 10%)
+Trend Method: EMA or Supertrend
+Use ADX Filter: Yes (minimum 20)
+Use HTF Confirmation: Yes (Daily for 1H, Weekly for 4H)
 ```
 
 #### For Higher Timeframe Strategy:

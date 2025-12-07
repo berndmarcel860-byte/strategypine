@@ -2,24 +2,27 @@
 
 ## Side-by-Side Comparison
 
-| Feature | Scalping Strategy | Higher Timeframe Strategy |
-|---------|------------------|---------------------------|
-| **Best Timeframes** | 1m, 5m, 15m, 30m | 4H, 1D, 1W |
-| **Trading Style** | Fast scalping, many trades | Swing trading, few trades |
-| **Avg Trade Duration** | 5-60 minutes | Days to weeks |
-| **Trades per Week** | 15-80 (depends on mode) | 2-10 |
-| **Risk per Trade** | 0.5-1.5% | 1.5-3% |
-| **Default R:R** | 2:1 | 3:1 |
-| **Win Rate Target** | 45-55% | 40-50% |
-| **Max Drawdown Target** | <15% | <25% |
-| **Time Commitment** | High (monitoring required) | Low (check 1-2x daily) |
-| **Stress Level** | High | Moderate |
-| **Indicator Focus** | Fast EMAs, RSI, MACD, Volume | EMAs, ADX, BB, Multi-TF |
-| **Entry Confirmations** | 3-5 signals | Quality over quantity |
-| **Position Management** | Quick exits, tight stops | Partial TP, trailing stops |
-| **Best Market** | Strong trends, high liquidity | Strong trends, any liquidity |
-| **Commission Impact** | High (many trades) | Low (few trades) |
-| **Skill Level** | Intermediate to Advanced | Beginner to Advanced |
+| Feature | Scalping Strategy | Higher Timeframe Strategy | DCA Strategy |
+|---------|------------------|---------------------------|--------------|
+| **Best Timeframes** | 1m, 5m, 15m, 30m | 4H, 1D, 1W | 15m, 1H, 4H, 1D |
+| **Trading Style** | Fast scalping, many trades | Swing trading, few trades | Pyramiding, multiple entries |
+| **Avg Trade Duration** | 5-60 minutes | Days to weeks | Hours to weeks |
+| **Entries per Position** | 1 | 1 | 2-10 (DCA levels) |
+| **Trades per Week** | 15-80 (depends on mode) | 2-10 | 1-5 (but multiple entries) |
+| **Risk per Trade** | 0.5-1.5% | 1.5-3% | 1% per level (cumulative) |
+| **Default R:R** | 2:1 | 3:1 | Variable (scaled exits) |
+| **Win Rate Target** | 45-55% | 40-50% | 50-60% |
+| **Max Drawdown Target** | <15% | <25% | <20% |
+| **Time Commitment** | High (monitoring required) | Low (check 1-2x daily) | Moderate (check 2-3x daily) |
+| **Stress Level** | High | Moderate | Moderate |
+| **Indicator Focus** | Fast EMAs, RSI, MACD, Volume | EMAs, ADX, BB, Multi-TF | Trend, ADX, RSI, MACD |
+| **Entry Confirmations** | 3-5 signals | Quality over quantity | Trend + pullbacks |
+| **Position Management** | Quick exits, tight stops | Partial TP, trailing stops | Global SL, multiple TPs |
+| **Best Market** | Strong trends, high liquidity | Strong trends, any liquidity | **Strong trending markets** |
+| **Commission Impact** | High (many trades) | Low (few trades) | Moderate (multiple entries) |
+| **Capital Required** | Lower (single entries) | Moderate | **Higher (reserves for DCA)** |
+| **Pyramiding** | No | No (or limited) | **Yes (core feature)** |
+| **Skill Level** | Intermediate to Advanced | Beginner to Advanced | Intermediate to Advanced |
 
 ---
 
@@ -44,6 +47,17 @@
 ✅ You're building long-term portfolio  
 ✅ You prefer swing trading  
 ✅ You want better risk/reward
+
+### Use DCA Strategy If:
+✅ You want to build positions systematically  
+✅ You trade strong trending markets  
+✅ You have capital reserves for multiple entries  
+✅ You want to reduce timing risk  
+✅ You're comfortable with pyramiding  
+✅ You can check charts 2-3x per day  
+✅ You want larger positions in good trades  
+✅ You prefer trend following approach  
+✅ You like systematic, rule-based adding
 
 ---
 
