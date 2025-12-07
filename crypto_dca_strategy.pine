@@ -164,6 +164,7 @@ if dcaMode == "Trend Following"
     longDCASignal := strategy.position_size > 0 and 
                      longDCACount < maxDCALevels and
                      trendBullish and
+                     not na(avgLongEntry) and not na(lastLongEntry) and
                      close < avgLongEntry * (1 - dcaDeviation / 100) and
                      close < lastLongEntry * (1 - dcaDeviation / 100) and
                      rsi < 50
@@ -171,6 +172,7 @@ if dcaMode == "Trend Following"
     shortDCASignal := strategy.position_size < 0 and 
                       shortDCACount < maxDCALevels and
                       trendBearish and
+                      not na(avgShortEntry) and not na(lastShortEntry) and
                       close > avgShortEntry * (1 + dcaDeviation / 100) and
                       close > lastShortEntry * (1 + dcaDeviation / 100) and
                       rsi > 50
@@ -329,7 +331,8 @@ if strategy.position_size != 0
     if not na(avgEntryLine)
         line.delete(avgEntryLine)
     lineColor = strategy.position_size > 0 ? color.green : color.red
-    avgEntryLine := line.new(bar_index[5], strategy.position_avg_price, bar_index, strategy.position_avg_price, 
+    startBar = math.max(bar_index - 50, 0)
+    avgEntryLine := line.new(startBar, strategy.position_avg_price, bar_index, strategy.position_avg_price, 
                              color=lineColor, width=2, style=line.style_dashed)
 
 // Background Color
