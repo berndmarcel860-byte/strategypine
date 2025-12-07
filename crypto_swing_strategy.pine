@@ -3,8 +3,8 @@ strategy("Professional Crypto Higher Timeframe Strategy",
          overlay=true, 
          pyramiding=1, 
          initial_capital=10000, 
-         default_qty_type=strategy.percent_of_equity, 
-         default_qty_value=50,
+         default_qty_type=strategy.cash, 
+         default_qty_value=1000,
          commission_type=strategy.commission.percent,
          commission_value=0.075)
 
@@ -172,9 +172,21 @@ shortEntry = shortTrigger and not avoidEntry and strategy.position_size == 0
 // POSITION MANAGEMENT
 // ============================================================================
 
+// Calculate position size based on risk
+accountSize = strategy.equity
+riskAmount = accountSize * (riskPercent / 100)
+
 // Calculate Stop Loss
 longStopLoss = close - (atr * atrMultiplierSL)
 shortStopLoss = close + (atr * atrMultiplierSL)
+
+// Calculate stop loss distance
+stopLossDistanceLong = close - longStopLoss
+stopLossDistanceShort = shortStopLoss - close
+
+// Calculate position size for risk-based sizing
+positionSizeLong = riskAmount / stopLossDistanceLong
+positionSizeShort = riskAmount / stopLossDistanceShort
 
 // Calculate Take Profit
 longTP1 = close + (atr * atrMultiplierSL * partialTPRatio)
@@ -189,7 +201,7 @@ shortTP2 = close - (atr * atrMultiplierSL * riskRewardRatio)
 
 // Long Entry
 if longEntry
-    strategy.entry("Long", strategy.long)
+    strategy.entry("Long", strategy.long, qty=positionSizeLong)
     if usePartialTP
         strategy.exit("Long TP1", "Long", limit=longTP1, stop=longStopLoss, qty_percent=partialTPPercent)
         strategy.exit("Long TP2", "Long", limit=longTP2, stop=longStopLoss)
@@ -198,7 +210,7 @@ if longEntry
 
 // Short Entry
 if shortEntry
-    strategy.entry("Short", strategy.short)
+    strategy.entry("Short", strategy.short, qty=positionSizeShort)
     if usePartialTP
         strategy.exit("Short TP1", "Short", limit=shortTP1, stop=shortStopLoss, qty_percent=partialTPPercent)
         strategy.exit("Short TP2", "Short", limit=shortTP2, stop=shortStopLoss)
