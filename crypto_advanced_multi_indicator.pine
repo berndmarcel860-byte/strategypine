@@ -467,7 +467,7 @@ if barstate.islast
 // ALERTS
 // ============================================================================
 
-alertcondition(longEntry, "Long Entry", "🚀 LONG Entry: {{ticker}} @ {{close}} | Score: " + str.tostring(longScore))
-alertcondition(shortEntry, "Short Entry", "🔻 SHORT Entry: {{ticker}} @ {{close}} | Score: " + str.tostring(shortScore))
+alertcondition(longEntry, "Long Entry", "🚀 LONG Entry: {{ticker}} @ {{close}}")
+alertcondition(shortEntry, "Short Entry", "🔻 SHORT Entry: {{ticker}} @ {{close}}")
 alertcondition(bullishDivergence, "Bullish Divergence", "📈 Bullish Divergence on {{ticker}}")
 alertcondition(bearishDivergence, "Bearish Divergence", "📉 Bearish Divergence on {{ticker}}")
