@@ -1,0 +1,480 @@
+//@version=6
+strategy("Professional Crypto DCA Strategy", 
+         overlay=true, 
+         pyramiding=10,
+         initial_capital=10000, 
+         default_qty_type=strategy.cash, 
+         default_qty_value=1000,
+         commission_type=strategy.commission.percent,
+         commission_value=0.075,
+         process_orders_on_close=true,
+         calc_on_every_tick=false)
+
+// ============================================================================
+// DCA STRATEGY - DOLLAR COST AVERAGING WITH TREND FOLLOWING
+// This strategy enters multiple positions as the trend develops
+// ============================================================================
+
+// ============================================================================
+// STRATEGY INPUTS
+// ============================================================================
+
+// DCA Settings
+maxDCALevels = input.int(5, "Maximum DCA Levels", minval=2, maxval=10, group="DCA Settings", tooltip="Maximum number of entries allowed")
+dcaDeviation = input.float(2.0, "DCA Entry Deviation (%)", minval=0.5, maxval=10.0, step=0.25, group="DCA Settings", tooltip="Price must move this % from last entry to trigger next DCA")
+dcaIncreaseSize = input.bool(true, "Increase Position Size Each Level", group="DCA Settings", tooltip="Each DCA level uses larger position size")
+dcaSizeMultiplier = input.float(1.5, "DCA Size Multiplier", minval=1.0, maxval=3.0, step=0.1, group="DCA Settings", tooltip="Position size multiplier for each level")
+
+// Risk Management
+riskPerLevel = input.float(1.0, "Risk Per DCA Level (%)", minval=0.1, maxval=5.0, step=0.1, group="Risk Management")
+useGlobalStopLoss = input.bool(true, "Use Global Stop Loss", group="Risk Management", tooltip="One stop loss for all DCA levels")
+globalSLPercent = input.float(5.0, "Global Stop Loss (%)", minval=1.0, maxval=20.0, step=0.5, group="Risk Management")
+useTakeProfitLevels = input.bool(true, "Use Multiple Take Profit Levels", group="Risk Management")
+tp1Percent = input.float(3.0, "Take Profit 1 (%)", minval=1.0, maxval=20.0, step=0.5, group="Risk Management")
+tp2Percent = input.float(6.0, "Take Profit 2 (%)", minval=2.0, maxval=30.0, step=0.5, group="Risk Management")
+tp3Percent = input.float(10.0, "Take Profit 3 (%)", minval=3.0, maxval=50.0, step=1.0, group="Risk Management")
+
+// Trend Detection
+trendMethod = input.string("EMA", "Trend Method", options=["EMA", "SMA", "Supertrend"], group="Trend Detection")
+trendLength = input.int(50, "Trend Indicator Length", minval=10, group="Trend Detection")
+emaFast = input.int(20, "Fast EMA", minval=5, group="Trend Detection")
+emaSlow = input.int(50, "Slow EMA", minval=10, group="Trend Detection")
+supertrendMultiplier = input.float(3.0, "Supertrend Multiplier", minval=1.0, maxval=10.0, step=0.5, group="Trend Detection")
+supertrendPeriod = input.int(10, "Supertrend Period", minval=5, group="Trend Detection")
+
+// Entry Filters
+useADXFilter = input.bool(true, "Use ADX Trend Strength Filter", group="Entry Filters")
+adxThreshold = input.int(20, "Minimum ADX", minval=10, maxval=50, group="Entry Filters")
+useRSIFilter = input.bool(true, "Use RSI Filter", group="Entry Filters")
+rsiOverbought = input.int(75, "RSI Overbought", minval=60, maxval=90, group="Entry Filters")
+rsiOversold = input.int(25, "RSI Oversold", minval=10, maxval=40, group="Entry Filters")
+useVolumeFilter = input.bool(true, "Use Volume Filter", group="Entry Filters")
+volumeThreshold = input.float(1.2, "Volume Threshold", minval=1.0, maxval=3.0, step=0.1, group="Entry Filters")
+
+// Higher Timeframe Confirmation
+useHTFConfirm = input.bool(true, "Use Higher Timeframe Confirmation", group="Higher Timeframe")
+htfTimeframe = input.timeframe("240", "Higher Timeframe", group="Higher Timeframe")
+
+// DCA Mode
+dcaMode = input.string("Trend Following", "DCA Mode", options=["Trend Following", "Mean Reversion", "Hybrid"], group="DCA Mode", 
+                       tooltip="Trend Following: Add on pullbacks in trend. Mean Reversion: Add as price moves against you. Hybrid: Combination")
+
+// Trade Frequency Control
+minBarsBetweenNewPositions = input.int(10, "Minimum Bars Between New Positions", minval=1, maxval=100, group="DCA Mode", tooltip="Prevents starting new DCA sequences too frequently")
+
+// ============================================================================
+// INDICATOR CALCULATIONS
+// ============================================================================
+
+// Trend Indicators
+emaFastLine = ta.ema(close, emaFast)
+emaSlowLine = ta.ema(close, emaSlow)
+smaLine = ta.sma(close, trendLength)
+
+// Supertrend
+[supertrendLine, supertrendDirection] = ta.supertrend(supertrendMultiplier, supertrendPeriod)
+supertrendBullish = supertrendDirection < 0
+supertrendBearish = supertrendDirection > 0
+
+// Determine trend based on selected method
+trendBullish = trendMethod == "EMA" ? (emaFastLine > emaSlowLine and close > emaSlowLine) : 
+               trendMethod == "SMA" ? close > smaLine : 
+               supertrendBullish
+
+trendBearish = trendMethod == "EMA" ? (emaFastLine < emaSlowLine and close < emaSlowLine) : 
+               trendMethod == "SMA" ? close < smaLine : 
+               supertrendBearish
+
+// ADX for Trend Strength
+adxLength = 14
+[diPlus, diMinus, adx] = ta.dmi(adxLength, adxLength)
+strongTrend = adx > adxThreshold
+
+// RSI
+rsi = ta.rsi(close, 14)
+rsiNeutral = rsi > rsiOversold and rsi < rsiOverbought
+
+// Volume
+volMA = ta.sma(volume, 20)
+volumeConfirm = volume > volMA * volumeThreshold
+
+// ATR for Volatility
+atr = ta.atr(14)
+
+// Higher Timeframe Trend
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+htfEma = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, emaSlow))
+htfBullish = htfClose > htfEma
+htfBearish = htfClose < htfEma
+
+// MACD for momentum
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+
+// ============================================================================
+// DCA ENTRY LOGIC
+// ============================================================================
+
+// Track entry levels
+var float lastLongEntry = na
+var float lastShortEntry = na
+var int longDCACount = 0
+var int shortDCACount = 0
+var float avgLongEntry = na
+var float avgShortEntry = na
+var int barsSinceLastClose = 999
+
+// Reset counters when position is closed
+if strategy.position_size == 0
+    if strategy.position_size[1] != 0
+        barsSinceLastClose := 0
+    else
+        barsSinceLastClose += 1
+    longDCACount := 0
+    shortDCACount := 0
+    lastLongEntry := na
+    lastShortEntry := na
+    avgLongEntry := na
+    avgShortEntry := na
+else if strategy.position_size > 0
+    shortDCACount := 0
+    lastShortEntry := na
+    avgShortEntry := na
+else if strategy.position_size < 0
+    longDCACount := 0
+    lastLongEntry := na
+    avgLongEntry := na
+
+// Calculate average entry price
+if strategy.position_size != 0
+    if strategy.position_size > 0 and na(avgLongEntry)
+        avgLongEntry := strategy.position_avg_price
+    if strategy.position_size < 0 and na(avgShortEntry)
+        avgShortEntry := strategy.position_avg_price
+
+// Cooldown check for new positions
+cooldownPassed = barsSinceLastClose >= minBarsBetweenNewPositions
+
+// Initial Entry Conditions (only when no position and cooldown passed)
+longEntryCondition = trendBullish and 
+                     (not useADXFilter or strongTrend) and 
+                     (not useRSIFilter or rsiNeutral) and
+                     (not useVolumeFilter or volumeConfirm) and
+                     (not useHTFConfirm or htfBullish) and
+                     cooldownPassed
+
+shortEntryCondition = trendBearish and 
+                      (not useADXFilter or strongTrend) and 
+                      (not useRSIFilter or rsiNeutral) and
+                      (not useVolumeFilter or volumeConfirm) and
+                      (not useHTFConfirm or htfBearish) and
+                      cooldownPassed
+
+// DCA Entry Conditions based on mode
+var bool longDCASignal = false
+var bool shortDCASignal = false
+
+if dcaMode == "Trend Following"
+    // Add on pullbacks in uptrend (for longs) or rallies in downtrend (for shorts)
+    longDCASignal := strategy.position_size > 0 and 
+                     longDCACount < maxDCALevels and
+                     trendBullish and
+                     not na(avgLongEntry) and not na(lastLongEntry) and
+                     close < avgLongEntry * (1 - dcaDeviation / 100) and
+                     close < lastLongEntry * (1 - dcaDeviation / 100) and
+                     rsi < 50
+    
+    shortDCASignal := strategy.position_size < 0 and 
+                      shortDCACount < maxDCALevels and
+                      trendBearish and
+                      not na(avgShortEntry) and not na(lastShortEntry) and
+                      close > avgShortEntry * (1 + dcaDeviation / 100) and
+                      close > lastShortEntry * (1 + dcaDeviation / 100) and
+                      rsi > 50
+
+else if dcaMode == "Mean Reversion"
+    // Add as price moves against position (traditional DCA)
+    longDCASignal := strategy.position_size > 0 and 
+                     longDCACount < maxDCALevels and
+                     trendBullish and
+                     close < lastLongEntry * (1 - dcaDeviation / 100)
+    
+    shortDCASignal := strategy.position_size < 0 and 
+                      shortDCACount < maxDCALevels and
+                      trendBearish and
+                      close > lastShortEntry * (1 + dcaDeviation / 100)
+
+else // Hybrid
+    // Combination: pullback in strong trend
+    longDCASignal := strategy.position_size > 0 and 
+                     longDCACount < maxDCALevels and
+                     trendBullish and strongTrend and
+                     close < lastLongEntry * (1 - dcaDeviation / 100) and
+                     macdLine > macdSignal
+    
+    shortDCASignal := strategy.position_size < 0 and 
+                      shortDCACount < maxDCALevels and
+                      trendBearish and strongTrend and
+                      close > lastShortEntry * (1 + dcaDeviation / 100) and
+                      macdLine < macdSignal
+
+// ============================================================================
+// POSITION SIZING
+// ============================================================================
+
+// Calculate position size for each level
+basePositionSize = (strategy.equity * (riskPerLevel / 100)) / (atr * 2)
+
+// Adjust size for DCA levels if increasing
+calculateDCASize(level) =>
+    if dcaIncreaseSize
+        basePositionSize * math.pow(dcaSizeMultiplier, level)
+    else
+        basePositionSize
+
+// ============================================================================
+// ENTRY EXECUTION
+// ============================================================================
+
+// Initial Long Entry
+if longEntryCondition and strategy.position_size == 0
+    qty = calculateDCASize(0)
+    strategy.entry("Long_0", strategy.long, qty=qty, comment="Initial Long")
+    longDCACount := 1
+    lastLongEntry := close
+    avgLongEntry := close
+
+// Initial Short Entry
+if shortEntryCondition and strategy.position_size == 0
+    qty = calculateDCASize(0)
+    strategy.entry("Short_0", strategy.short, qty=qty, comment="Initial Short")
+    shortDCACount := 1
+    lastShortEntry := close
+    avgShortEntry := close
+
+// DCA Long Entries
+if longDCASignal
+    qty = calculateDCASize(longDCACount)
+    entryId = "Long_" + str.tostring(longDCACount)
+    strategy.entry(entryId, strategy.long, qty=qty, comment="DCA Long " + str.tostring(longDCACount + 1))
+    longDCACount := longDCACount + 1
+    lastLongEntry := close
+
+// DCA Short Entries
+if shortDCASignal
+    qty = calculateDCASize(shortDCACount)
+    entryId = "Short_" + str.tostring(shortDCACount)
+    strategy.entry(entryId, strategy.short, qty=qty, comment="DCA Short " + str.tostring(shortDCACount + 1))
+    shortDCACount := shortDCACount + 1
+    lastShortEntry := close
+
+// ============================================================================
+// EXIT LOGIC
+// ============================================================================
+
+// Global Stop Loss
+if useGlobalStopLoss
+    if strategy.position_size > 0
+        globalStopLong = strategy.position_avg_price * (1 - globalSLPercent / 100)
+        strategy.exit("Global SL Long", limit=na, stop=globalStopLong)
+    
+    if strategy.position_size < 0
+        globalStopShort = strategy.position_avg_price * (1 + globalSLPercent / 100)
+        strategy.exit("Global SL Short", limit=na, stop=globalStopShort)
+
+// Multiple Take Profit Levels
+if useTakeProfitLevels and strategy.position_size != 0
+    posSize = math.abs(strategy.position_size)
+    
+    if strategy.position_size > 0
+        tp1Price = strategy.position_avg_price * (1 + tp1Percent / 100)
+        tp2Price = strategy.position_avg_price * (1 + tp2Percent / 100)
+        tp3Price = strategy.position_avg_price * (1 + tp3Percent / 100)
+        
+        tp1Qty = posSize * 0.30
+        tp2Qty = posSize * 0.30
+        
+        strategy.exit("TP1 Long", limit=tp1Price, qty=tp1Qty)
+        strategy.exit("TP2 Long", limit=tp2Price, qty=tp2Qty)
+        strategy.exit("TP3 Long", limit=tp3Price)
+    
+    if strategy.position_size < 0
+        tp1Price = strategy.position_avg_price * (1 - tp1Percent / 100)
+        tp2Price = strategy.position_avg_price * (1 - tp2Percent / 100)
+        tp3Price = strategy.position_avg_price * (1 - tp3Percent / 100)
+        
+        tp1Qty = posSize * 0.30
+        tp2Qty = posSize * 0.30
+        
+        strategy.exit("TP1 Short", limit=tp1Price, qty=tp1Qty)
+        strategy.exit("TP2 Short", limit=tp2Price, qty=tp2Qty)
+        strategy.exit("TP3 Short", limit=tp3Price)
+
+// Trend Reversal Exit
+trendReversalLong = strategy.position_size > 0 and trendBearish and macdLine < macdSignal
+trendReversalShort = strategy.position_size < 0 and trendBullish and macdLine > macdSignal
+
+if trendReversalLong
+    strategy.close_all(comment="Trend Reversal")
+
+if trendReversalShort
+    strategy.close_all(comment="Trend Reversal")
+
+// ============================================================================
+// VISUAL ELEMENTS
+// ============================================================================
+
+// Plot Trend Indicators
+plot(trendMethod == "EMA" ? emaFastLine : na, "Fast EMA", color=color.rgb(33, 150, 243), linewidth=2)
+plot(trendMethod == "EMA" ? emaSlowLine : na, "Slow EMA", color=color.rgb(255, 152, 0), linewidth=2)
+plot(trendMethod == "SMA" ? smaLine : na, "SMA", color=color.rgb(156, 39, 176), linewidth=2)
+plot(trendMethod == "Supertrend" ? supertrendLine : na, "Supertrend", 
+     color=supertrendBullish ? color.green : color.red, linewidth=2)
+
+// DCA Entry Levels
+plotshape(longEntryCondition and strategy.position_size == 0, "Initial Long", shape.triangleup, 
+          location.belowbar, color.rgb(0, 255, 0, 0), size=size.normal)
+plotshape(shortEntryCondition and strategy.position_size == 0, "Initial Short", shape.triangledown, 
+          location.abovebar, color.rgb(255, 0, 0, 0), size=size.normal)
+
+plotshape(longDCASignal, "DCA Long", shape.circle, location.belowbar, color.rgb(0, 200, 0, 30), size=size.small)
+plotshape(shortDCASignal, "DCA Short", shape.circle, location.abovebar, color.rgb(200, 0, 0, 30), size=size.small)
+
+// Average Entry Price Line
+var line avgEntryLine = na
+if strategy.position_size != 0
+    if not na(avgEntryLine)
+        line.delete(avgEntryLine)
+    lineColor = strategy.position_size > 0 ? color.green : color.red
+    startBar = math.max(bar_index - 50, 0)
+    avgEntryLine := line.new(startBar, strategy.position_avg_price, bar_index, strategy.position_avg_price, 
+                             color=lineColor, width=2, style=line.style_dashed)
+
+// Background Color
+bgColor = trendBullish and strongTrend ? color.new(color.green, 97) : 
+          trendBearish and strongTrend ? color.new(color.red, 97) : 
+          color.new(color.gray, 98)
+bgcolor(bgColor, title="Trend Background")
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+
+var table dashboard = table.new(position.top_right, 2, 16, bgcolor=color.new(color.black, 85), border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(dashboard, 0, 0, "DCA Strategy", text_color=color.white, bgcolor=color.new(color.green, 40))
+    table.cell(dashboard, 1, 0, "Status", text_color=color.white, bgcolor=color.new(color.green, 40))
+    
+    // Mode
+    table.cell(dashboard, 0, 1, "DCA Mode", text_color=color.white)
+    table.cell(dashboard, 1, 1, dcaMode, text_color=color.yellow)
+    
+    // Trend
+    table.cell(dashboard, 0, 2, "Trend", text_color=color.white)
+    trendText = trendBullish ? "BULLISH 🟢" : trendBearish ? "BEARISH 🔴" : "NEUTRAL 🟡"
+    trendColor = trendBullish ? color.lime : trendBearish ? color.red : color.yellow
+    table.cell(dashboard, 1, 2, trendText, text_color=trendColor)
+    
+    // ADX
+    table.cell(dashboard, 0, 3, "ADX Strength", text_color=color.white)
+    table.cell(dashboard, 1, 3, str.tostring(math.round(adx, 1)) + (strongTrend ? " 💪" : ""), 
+               text_color=strongTrend ? color.lime : color.gray)
+    
+    // RSI
+    table.cell(dashboard, 0, 4, "RSI", text_color=color.white)
+    table.cell(dashboard, 1, 4, str.tostring(math.round(rsi, 1)), 
+               text_color=rsi > rsiOverbought ? color.red : rsi < rsiOversold ? color.lime : color.white)
+    
+    // HTF Trend
+    table.cell(dashboard, 0, 5, "HTF (" + htfTimeframe + ")", text_color=color.white)
+    table.cell(dashboard, 1, 5, htfBullish ? "Bull 🟢" : "Bear 🔴", 
+               text_color=htfBullish ? color.lime : color.red)
+    
+    // Position Status
+    table.cell(dashboard, 0, 6, "Position", text_color=color.white)
+    posText = strategy.position_size > 0 ? "LONG 🟢" : strategy.position_size < 0 ? "SHORT 🔴" : "None"
+    posColor = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(dashboard, 1, 6, posText, text_color=posColor)
+    
+    // DCA Levels
+    table.cell(dashboard, 0, 7, "DCA Levels", text_color=color.white)
+    currentLevels = strategy.position_size > 0 ? longDCACount : strategy.position_size < 0 ? shortDCACount : 0
+    levelsText = str.tostring(currentLevels) + "/" + str.tostring(maxDCALevels)
+    table.cell(dashboard, 1, 7, levelsText, text_color=color.aqua)
+    
+    // Average Entry
+    table.cell(dashboard, 0, 8, "Avg Entry", text_color=color.white)
+    if strategy.position_size != 0
+        avgText = str.tostring(math.round(strategy.position_avg_price, 2))
+        table.cell(dashboard, 1, 8, avgText, text_color=color.yellow)
+    else
+        table.cell(dashboard, 1, 8, "-", text_color=color.gray)
+    
+    // Current Price vs Avg
+    table.cell(dashboard, 0, 9, "P&L %", text_color=color.white)
+    if strategy.position_size != 0
+        pnlPercent = ((close - strategy.position_avg_price) / strategy.position_avg_price) * 100 * math.sign(strategy.position_size)
+        pnlText = str.tostring(math.round(pnlPercent, 2)) + "%"
+        pnlColor = pnlPercent > 0 ? color.lime : color.red
+        table.cell(dashboard, 1, 9, pnlText, text_color=pnlColor)
+    else
+        table.cell(dashboard, 1, 9, "0.00%", text_color=color.gray)
+    
+    // Next DCA Level
+    table.cell(dashboard, 0, 10, "Next DCA @", text_color=color.white)
+    if strategy.position_size > 0 and longDCACount < maxDCALevels
+        nextLevel = lastLongEntry * (1 - dcaDeviation / 100)
+        table.cell(dashboard, 1, 10, str.tostring(math.round(nextLevel, 2)), text_color=color.orange)
+    else if strategy.position_size < 0 and shortDCACount < maxDCALevels
+        nextLevel = lastShortEntry * (1 + dcaDeviation / 100)
+        table.cell(dashboard, 1, 10, str.tostring(math.round(nextLevel, 2)), text_color=color.orange)
+    else
+        table.cell(dashboard, 1, 10, "-", text_color=color.gray)
+    
+    // Volume Status
+    table.cell(dashboard, 0, 11, "Volume", text_color=color.white)
+    volText = volumeConfirm ? "High 📊" : "Normal"
+    table.cell(dashboard, 1, 11, volText, text_color=volumeConfirm ? color.yellow : color.gray)
+    
+    // ATR
+    table.cell(dashboard, 0, 12, "ATR", text_color=color.white)
+    table.cell(dashboard, 1, 12, str.tostring(math.round(atr, 4)), text_color=color.white)
+    
+    // Global Stop Loss
+    table.cell(dashboard, 0, 13, "Global SL", text_color=color.white)
+    if useGlobalStopLoss and strategy.position_size != 0
+        if strategy.position_size > 0
+            slPrice = strategy.position_avg_price * (1 - globalSLPercent / 100)
+            table.cell(dashboard, 1, 13, str.tostring(math.round(slPrice, 2)), text_color=color.red)
+        else
+            slPrice = strategy.position_avg_price * (1 + globalSLPercent / 100)
+            table.cell(dashboard, 1, 13, str.tostring(math.round(slPrice, 2)), text_color=color.red)
+    else
+        table.cell(dashboard, 1, 13, useGlobalStopLoss ? "No Position" : "Disabled", text_color=color.gray)
+    
+    // Take Profit Targets
+    table.cell(dashboard, 0, 14, "TP Levels", text_color=color.white)
+    if useTakeProfitLevels
+        table.cell(dashboard, 1, 14, "1:" + str.tostring(tp1Percent) + "% 2:" + str.tostring(tp2Percent) + "% 3:" + str.tostring(tp3Percent) + "%", text_color=color.lime)
+    else
+        table.cell(dashboard, 1, 14, "Disabled", text_color=color.gray)
+    
+    // Risk per Level
+    table.cell(dashboard, 0, 15, "Risk/Level", text_color=color.white)
+    table.cell(dashboard, 1, 15, str.tostring(riskPerLevel) + "%", text_color=color.aqua)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(longEntryCondition and strategy.position_size == 0, "Initial Long Entry", 
+               "🚀 DCA Initial LONG: {{ticker}} @ {{close}}")
+alertcondition(shortEntryCondition and strategy.position_size == 0, "Initial Short Entry", 
+               "🔻 DCA Initial SHORT: {{ticker}} @ {{close}}")
+alertcondition(longDCASignal, "DCA Long Add", 
+               "➕ DCA Add LONG: {{ticker}} @ {{close}}")
+alertcondition(shortDCASignal, "DCA Short Add", 
+               "➕ DCA Add SHORT: {{ticker}} @ {{close}}")
+alertcondition(trendReversalLong or trendReversalShort, "Trend Reversal Exit", 
+               "⚠️ DCA Exit: Trend Reversal on {{ticker}}")

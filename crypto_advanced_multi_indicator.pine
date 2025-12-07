@@ -1,0 +1,473 @@
+//@version=6
+strategy("Advanced Multi-Indicator Crypto Strategy", 
+         overlay=true, 
+         pyramiding=0, 
+         initial_capital=10000, 
+         default_qty_type=strategy.cash, 
+         default_qty_value=1000,
+         commission_type=strategy.commission.percent,
+         commission_value=0.075,
+         process_orders_on_close=true,
+         calc_on_every_tick=false)
+
+// ============================================================================
+// ADVANCED MULTI-INDICATOR STRATEGY
+// Combines: EMA Crossover, RSI Divergence, MACD, Supertrend, Volume Profile,
+// Bollinger Bands, Stochastic, ADX, and Candlestick Patterns
+// ============================================================================
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// Risk Management
+riskPercent = input.float(1.5, "Risk Per Trade (%)", minval=0.5, maxval=5.0, step=0.1, group="Risk Management")
+riskRewardRatio = input.float(2.5, "Risk/Reward Ratio", minval=1.5, maxval=5.0, step=0.25, group="Risk Management")
+useTrailingStop = input.bool(true, "Use Trailing Stop", group="Risk Management")
+trailingStopATR = input.float(2.0, "Trailing Stop ATR Multiplier", minval=1.0, maxval=5.0, step=0.25, group="Risk Management")
+
+// Trade Frequency
+minBarsBetweenTrades = input.int(5, "Minimum Bars Between Trades", minval=1, maxval=20, group="Trade Control")
+maxTradesPerDay = input.int(3, "Max Trades Per Day", minval=1, maxval=10, group="Trade Control")
+
+// Trend Indicators
+emaFast = input.int(9, "Fast EMA", minval=5, group="Trend Indicators")
+emaMedium = input.int(21, "Medium EMA", minval=10, group="Trend Indicators")
+emaSlow = input.int(55, "Slow EMA", minval=20, group="Trend Indicators")
+ema200 = input.int(200, "Long-term EMA", minval=100, group="Trend Indicators")
+
+// Momentum Indicators
+rsiLength = input.int(14, "RSI Length", minval=5, group="Momentum")
+rsiOverbought = input.int(70, "RSI Overbought", minval=60, maxval=90, group="Momentum")
+rsiOversold = input.int(30, "RSI Oversold", minval=10, maxval=40, group="Momentum")
+stochLength = input.int(14, "Stochastic Length", minval=5, group="Momentum")
+stochSmooth = input.int(3, "Stochastic Smooth", minval=1, group="Momentum")
+
+// Volatility & Trend Strength
+atrLength = input.int(14, "ATR Length", minval=5, group="Volatility")
+bbLength = input.int(20, "Bollinger Bands Length", minval=5, group="Volatility")
+bbStdDev = input.float(2.0, "BB Standard Deviation", minval=1.0, maxval=4.0, step=0.1, group="Volatility")
+adxLength = input.int(14, "ADX Length", minval=5, group="Volatility")
+adxThreshold = input.int(25, "ADX Threshold", minval=15, maxval=40, group="Volatility")
+
+// Supertrend
+supertrendMultiplier = input.float(3.0, "Supertrend ATR Multiplier", minval=1.0, maxval=10.0, step=0.5, group="Supertrend")
+supertrendPeriod = input.int(10, "Supertrend Period", minval=5, maxval=20, group="Supertrend")
+
+// Volume Analysis
+volumeLength = input.int(20, "Volume MA Length", minval=5, group="Volume")
+volumeThreshold = input.float(1.5, "Volume Spike Threshold", minval=1.0, maxval=3.0, step=0.1, group="Volume")
+
+// Pattern Recognition
+usePatterns = input.bool(true, "Enable Pattern Recognition", group="Patterns")
+useDivergence = input.bool(true, "Enable RSI Divergence Detection", group="Patterns")
+
+// Higher Timeframe Filter
+useHTFFilter = input.bool(true, "Use Higher Timeframe Filter", group="HTF Filter")
+htfTimeframe = input.timeframe("240", "Higher Timeframe", group="HTF Filter")
+
+// ============================================================================
+// INDICATOR CALCULATIONS
+// ============================================================================
+
+// EMAs
+emaFastLine = ta.ema(close, emaFast)
+emaMediumLine = ta.ema(close, emaMedium)
+emaSlowLine = ta.ema(close, emaSlow)
+ema200Line = ta.ema(close, ema200)
+
+// RSI
+rsi = ta.rsi(close, rsiLength)
+rsiMA = ta.ema(rsi, 9)
+
+// Stochastic
+stochK = ta.stoch(close, high, low, stochLength)
+stochD = ta.sma(stochK, stochSmooth)
+
+// MACD
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+
+// Bollinger Bands
+[bbMiddle, bbUpper, bbLower] = ta.bb(close, bbLength, bbStdDev)
+bbWidth = (bbUpper - bbLower) / bbMiddle
+bbExpansion = bbWidth > ta.sma(bbWidth, 20)
+
+// ATR
+atr = ta.atr(atrLength)
+
+// ADX
+[diPlus, diMinus, adx] = ta.dmi(adxLength, adxLength)
+strongTrend = adx > adxThreshold
+
+// Supertrend
+[supertrendLine, supertrendDirection] = ta.supertrend(supertrendMultiplier, supertrendPeriod)
+supertrendBullish = supertrendDirection < 0
+supertrendBearish = supertrendDirection > 0
+
+// Volume
+volumeMA = ta.sma(volume, volumeLength)
+volumeSpike = volume > volumeMA * volumeThreshold
+buyingVolume = close > open and volume > volumeMA
+sellingVolume = close < open and volume > volumeMA
+
+// Higher Timeframe Analysis
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+htfEmaFast = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, 21))
+htfEmaSlow = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, 55))
+htfTrendBullish = htfClose > htfEmaFast and htfEmaFast > htfEmaSlow
+htfTrendBearish = htfClose < htfEmaFast and htfEmaFast < htfEmaSlow
+
+// ============================================================================
+// PATTERN RECOGNITION
+// ============================================================================
+
+// Candlestick Patterns
+bodySize = math.abs(close - open)
+rangeSize = high - low
+upperWick = high - math.max(close, open)
+lowerWick = math.min(close, open) - low
+
+// Bullish Patterns
+bullishEngulfing = close > open and close[1] < open[1] and 
+                   close > open[1] and open < close[1] and
+                   bodySize > bodySize[1] * 1.5
+
+hammer = close > open and lowerWick > bodySize * 2 and 
+         upperWick < bodySize * 0.3 and
+         close > (high + low) / 2
+
+morningStar = close[2] < open[2] and 
+              math.abs(close[1] - open[1]) < bodySize[2] * 0.3 and
+              close > open and close > (open[2] + close[2]) / 2
+
+bullishPattern = usePatterns and (bullishEngulfing or hammer or morningStar)
+
+// Bearish Patterns
+bearishEngulfing = close < open and close[1] > open[1] and 
+                   close < open[1] and open > close[1] and
+                   bodySize > bodySize[1] * 1.5
+
+shootingStar = close < open and upperWick > bodySize * 2 and 
+               lowerWick < bodySize * 0.3 and
+               close < (high + low) / 2
+
+eveningStar = close[2] > open[2] and 
+              math.abs(close[1] - open[1]) < bodySize[2] * 0.3 and
+              close < open and close < (open[2] + close[2]) / 2
+
+bearishPattern = usePatterns and (bearishEngulfing or shootingStar or eveningStar)
+
+// ============================================================================
+// RSI DIVERGENCE DETECTION
+// ============================================================================
+
+// Find pivot points
+pivotLookback = 5
+pivotHigh = ta.pivothigh(high, pivotLookback, pivotLookback)
+pivotLow = ta.pivotlow(low, pivotLookback, pivotLookback)
+
+// Variables to track divergence
+var float lastPivotHigh = na
+var float lastPivotHighRSI = na
+var float lastPivotLow = na
+var float lastPivotLowRSI = na
+
+// Update pivot tracking
+if not na(pivotHigh)
+    lastPivotHigh := high[pivotLookback]
+    lastPivotHighRSI := rsi[pivotLookback]
+
+if not na(pivotLow)
+    lastPivotLow := low[pivotLookback]
+    lastPivotLowRSI := rsi[pivotLookback]
+
+// Bullish divergence: price makes lower low, RSI makes higher low
+bullishDivergence = useDivergence and not na(lastPivotLow) and 
+                    low < lastPivotLow and rsi > lastPivotLowRSI and
+                    rsi < 40
+
+// Bearish divergence: price makes higher high, RSI makes lower high
+bearishDivergence = useDivergence and not na(lastPivotHigh) and 
+                    high > lastPivotHigh and rsi < lastPivotHighRSI and
+                    rsi > 60
+
+// ============================================================================
+// ENTRY CONDITIONS
+// ============================================================================
+
+// Trend Confirmation
+trendBullish = emaFastLine > emaMediumLine and emaMediumLine > emaSlowLine and close > ema200Line
+trendBearish = emaFastLine < emaMediumLine and emaMediumLine < emaSlowLine and close < ema200Line
+
+// Momentum Confirmation
+momentumBullish = rsi > 50 and rsi < rsiOverbought and stochK > stochD and stochK < 80
+momentumBearish = rsi < 50 and rsi > rsiOversold and stochK < stochD and stochK > 20
+
+// MACD Confirmation
+macdBullish = macdLine > macdSignal and macdHist > 0 and macdHist > macdHist[1]
+macdBearish = macdLine < macdSignal and macdHist < 0 and macdHist < macdHist[1]
+
+// Volatility & Volume Confirmation
+volatilityOK = bbExpansion and strongTrend
+volumeConfirmBull = buyingVolume or volumeSpike
+volumeConfirmBear = sellingVolume or volumeSpike
+
+// Supertrend Confirmation
+supertrendConfirmBull = supertrendBullish and close > supertrendLine
+supertrendConfirmBear = supertrendBearish and close < supertrendLine
+
+// Price Position
+priceNearSupport = close < bbLower * 1.02 and close > bbLower * 0.98
+priceNearResistance = close > bbUpper * 0.98 and close < bbUpper * 1.02
+
+// Higher Timeframe Alignment
+htfAlignBull = not useHTFFilter or htfTrendBullish
+htfAlignBear = not useHTFFilter or htfTrendBearish
+
+// ============================================================================
+// SIGNAL SCORING SYSTEM
+// ============================================================================
+
+// Long Signal Scoring (0-10 points)
+longScore = 0
+if trendBullish
+    longScore += 2
+if momentumBullish
+    longScore += 1
+if macdBullish
+    longScore += 1
+if supertrendConfirmBull
+    longScore += 2
+if volatilityOK
+    longScore += 1
+if volumeConfirmBull
+    longScore += 1
+if bullishPattern
+    longScore += 1
+if bullishDivergence
+    longScore += 1
+if htfAlignBull
+    longScore += 1
+
+// Short Signal Scoring (0-10 points)
+shortScore = 0
+if trendBearish
+    shortScore += 2
+if momentumBearish
+    shortScore += 1
+if macdBearish
+    shortScore += 1
+if supertrendConfirmBear
+    shortScore += 2
+if volatilityOK
+    shortScore += 1
+if volumeConfirmBear
+    shortScore += 1
+if bearishPattern
+    shortScore += 1
+if bearishDivergence
+    shortScore += 1
+if htfAlignBear
+    shortScore += 1
+
+// ============================================================================
+// TRADE MANAGEMENT
+// ============================================================================
+
+// Track bars since last trade
+var int barsSinceLastTrade = 999
+if strategy.position_size[1] != 0 and strategy.position_size == 0
+    barsSinceLastTrade := 0
+else if strategy.position_size == 0
+    barsSinceLastTrade += 1
+
+cooldownPassed = barsSinceLastTrade >= minBarsBetweenTrades
+
+// Track trades per day
+var int tradesThisDay = 0
+var int lastTradeDay = 0
+
+if dayofmonth != lastTradeDay
+    tradesThisDay := 0
+    lastTradeDay := dayofmonth
+
+maxTradesReached = tradesThisDay >= maxTradesPerDay
+
+// Final Entry Conditions (require score >= 7 out of 10)
+longEntry = longScore >= 7 and strategy.position_size == 0 and cooldownPassed and not maxTradesReached
+shortEntry = shortScore >= 7 and strategy.position_size == 0 and cooldownPassed and not maxTradesReached
+
+// ============================================================================
+// POSITION SIZING
+// ============================================================================
+
+// Calculate position size based on risk
+accountSize = strategy.equity
+riskAmount = accountSize * (riskPercent / 100)
+stopLossDistance = atr * 2.0
+positionSize = riskAmount / stopLossDistance
+
+// ============================================================================
+// STRATEGY EXECUTION
+// ============================================================================
+
+// Long Entry
+if longEntry
+    longStopLoss = close - stopLossDistance
+    longTakeProfit = close + (stopLossDistance * riskRewardRatio)
+    strategy.entry("Long", strategy.long, qty=positionSize, comment="Score: " + str.tostring(longScore))
+    strategy.exit("Long Exit", "Long", stop=longStopLoss, limit=longTakeProfit)
+    tradesThisDay += 1
+
+// Short Entry
+if shortEntry
+    shortStopLoss = close + stopLossDistance
+    shortTakeProfit = close - (stopLossDistance * riskRewardRatio)
+    strategy.entry("Short", strategy.short, qty=positionSize, comment="Score: " + str.tostring(shortScore))
+    strategy.exit("Short Exit", "Short", stop=shortStopLoss, limit=shortTakeProfit)
+    tradesThisDay += 1
+
+// Trailing Stop
+if useTrailingStop
+    if strategy.position_size > 0
+        trailStop = close - (atr * trailingStopATR)
+        if trailStop > strategy.position_avg_price
+            strategy.exit("Trail Long", "Long", stop=trailStop)
+    
+    if strategy.position_size < 0
+        trailStop = close + (atr * trailingStopATR)
+        if trailStop < strategy.position_avg_price
+            strategy.exit("Trail Short", "Short", stop=trailStop)
+
+// Emergency Exit on Opposite Signal
+if strategy.position_size > 0 and shortScore >= 8
+    strategy.close("Long", comment="Reversal Exit")
+
+if strategy.position_size < 0 and longScore >= 8
+    strategy.close("Short", comment="Reversal Exit")
+
+// ============================================================================
+// VISUAL ELEMENTS
+// ============================================================================
+
+// Plot EMAs
+plot(emaFastLine, "Fast EMA", color=color.rgb(33, 150, 243), linewidth=1)
+plot(emaMediumLine, "Medium EMA", color=color.rgb(255, 152, 0), linewidth=2)
+plot(emaSlowLine, "Slow EMA", color=color.rgb(233, 30, 99), linewidth=2)
+plot(ema200Line, "EMA 200", color=color.gray, linewidth=2)
+
+// Plot Supertrend
+plot(supertrendLine, "Supertrend", color=supertrendBullish ? color.green : color.red, linewidth=2)
+
+// Plot Bollinger Bands
+p1 = plot(bbUpper, "BB Upper", color=color.new(color.gray, 70))
+p2 = plot(bbLower, "BB Lower", color=color.new(color.gray, 70))
+fill(p1, p2, color=color.new(color.gray, 95))
+
+// Entry Signals
+plotshape(longEntry, "Long Signal", shape.triangleup, location.belowbar, 
+          color.new(color.lime, 0), size=size.normal, text="L")
+plotshape(shortEntry, "Short Signal", shape.triangledown, location.abovebar, 
+          color.new(color.red, 0), size=size.normal, text="S")
+
+// Pattern Signals
+plotshape(bullishPattern and not longEntry, "Bullish Pattern", shape.circle, location.belowbar, 
+          color.new(color.green, 50), size=size.tiny)
+plotshape(bearishPattern and not shortEntry, "Bearish Pattern", shape.circle, location.abovebar, 
+          color.new(color.red, 50), size=size.tiny)
+
+// Divergence Signals
+plotshape(bullishDivergence, "Bull Div", shape.labelup, location.belowbar, 
+          color.new(color.aqua, 30), size=size.small, text="BD")
+plotshape(bearishDivergence, "Bear Div", shape.labeldown, location.abovebar, 
+          color.new(color.orange, 30), size=size.small, text="BD")
+
+// Background
+trendBg = trendBullish ? color.new(color.green, 97) : 
+          trendBearish ? color.new(color.red, 97) : 
+          color.new(color.gray, 98)
+bgcolor(trendBg, title="Trend Background")
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+
+var table dashboard = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 85), border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(dashboard, 0, 0, "Advanced Strategy", text_color=color.white, bgcolor=color.new(color.purple, 40))
+    table.cell(dashboard, 1, 0, "Status", text_color=color.white, bgcolor=color.new(color.purple, 40))
+    
+    // Long Score
+    table.cell(dashboard, 0, 1, "Long Score", text_color=color.white)
+    longScoreColor = longScore >= 7 ? color.lime : longScore >= 5 ? color.yellow : color.gray
+    table.cell(dashboard, 1, 1, str.tostring(longScore) + "/10", text_color=longScoreColor)
+    
+    // Short Score
+    table.cell(dashboard, 0, 2, "Short Score", text_color=color.white)
+    shortScoreColor = shortScore >= 7 ? color.red : shortScore >= 5 ? color.orange : color.gray
+    table.cell(dashboard, 1, 2, str.tostring(shortScore) + "/10", text_color=shortScoreColor)
+    
+    // Trend
+    table.cell(dashboard, 0, 3, "Trend", text_color=color.white)
+    trendText = trendBullish ? "BULL 🟢" : trendBearish ? "BEAR 🔴" : "NEUTRAL 🟡"
+    trendColor = trendBullish ? color.lime : trendBearish ? color.red : color.yellow
+    table.cell(dashboard, 1, 3, trendText, text_color=trendColor)
+    
+    // ADX
+    table.cell(dashboard, 0, 4, "ADX", text_color=color.white)
+    table.cell(dashboard, 1, 4, str.tostring(math.round(adx, 1)) + (strongTrend ? " 💪" : ""), 
+               text_color=strongTrend ? color.lime : color.gray)
+    
+    // RSI
+    table.cell(dashboard, 0, 5, "RSI", text_color=color.white)
+    table.cell(dashboard, 1, 5, str.tostring(math.round(rsi, 1)), 
+               text_color=rsi > 70 ? color.red : rsi < 30 ? color.lime : color.white)
+    
+    // Supertrend
+    table.cell(dashboard, 0, 6, "Supertrend", text_color=color.white)
+    table.cell(dashboard, 1, 6, supertrendBullish ? "BULL 🟢" : "BEAR 🔴", 
+               text_color=supertrendBullish ? color.lime : color.red)
+    
+    // HTF Trend
+    table.cell(dashboard, 0, 7, "HTF Trend", text_color=color.white)
+    table.cell(dashboard, 1, 7, htfTrendBullish ? "BULL 🟢" : htfTrendBearish ? "BEAR 🔴" : "NEUTRAL", 
+               text_color=htfTrendBullish ? color.lime : htfTrendBearish ? color.red : color.yellow)
+    
+    // Position
+    table.cell(dashboard, 0, 8, "Position", text_color=color.white)
+    posText = strategy.position_size > 0 ? "LONG 🟢" : strategy.position_size < 0 ? "SHORT 🔴" : "None"
+    posColor = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(dashboard, 1, 8, posText, text_color=posColor)
+    
+    // P&L
+    if strategy.position_size != 0
+        table.cell(dashboard, 0, 9, "P&L %", text_color=color.white)
+        pnlPercent = ((close - strategy.position_avg_price) / strategy.position_avg_price) * 100 * math.sign(strategy.position_size)
+        pnlText = str.tostring(math.round(pnlPercent, 2)) + "%"
+        pnlColor = pnlPercent > 0 ? color.lime : color.red
+        table.cell(dashboard, 1, 9, pnlText, text_color=pnlColor)
+    else
+        table.cell(dashboard, 0, 9, "P&L %", text_color=color.white)
+        table.cell(dashboard, 1, 9, "0.00%", text_color=color.gray)
+    
+    // Trades Today
+    table.cell(dashboard, 0, 10, "Trades Today", text_color=color.white)
+    tradesColor = tradesThisDay >= maxTradesPerDay ? color.red : color.aqua
+    table.cell(dashboard, 1, 10, str.tostring(tradesThisDay) + "/" + str.tostring(maxTradesPerDay), 
+               text_color=tradesColor)
+    
+    // Cooldown
+    table.cell(dashboard, 0, 11, "Cooldown", text_color=color.white)
+    cooldownText = cooldownPassed ? "Ready ✓" : str.tostring(minBarsBetweenTrades - barsSinceLastTrade) + " bars"
+    table.cell(dashboard, 1, 11, cooldownText, text_color=cooldownPassed ? color.lime : color.orange)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(longEntry, "Long Entry", "🚀 LONG Entry: {{ticker}} @ {{close}}")
+alertcondition(shortEntry, "Short Entry", "🔻 SHORT Entry: {{ticker}} @ {{close}}")
+alertcondition(bullishDivergence, "Bullish Divergence", "📈 Bullish Divergence on {{ticker}}")
+alertcondition(bearishDivergence, "Bearish Divergence", "📉 Bearish Divergence on {{ticker}}")

@@ -1,0 +1,324 @@
+//@version=6
+strategy("Professional Crypto Futures Scalping Strategy", 
+         overlay=true, 
+         pyramiding=0, 
+         initial_capital=10000, 
+         default_qty_type=strategy.cash, 
+         default_qty_value=1000,
+         commission_type=strategy.commission.percent,
+         commission_value=0.075,
+         process_orders_on_close=true,
+         calc_on_every_tick=false)
+
+// ============================================================================
+// STRATEGY INPUTS
+// ============================================================================
+
+// Risk Management
+riskPercent = input.float(1.0, "Risk Per Trade (%)", minval=0.1, maxval=5.0, step=0.1, group="Risk Management")
+riskRewardRatio = input.float(2.0, "Risk/Reward Ratio", minval=1.0, maxval=5.0, step=0.1, group="Risk Management")
+useATRForSL = input.bool(true, "Use ATR for Stop Loss", group="Risk Management")
+atrMultiplier = input.float(1.5, "ATR Multiplier for SL", minval=0.5, maxval=5.0, step=0.1, group="Risk Management")
+fixedStopLoss = input.float(2.0, "Fixed Stop Loss (%)", minval=0.1, maxval=10.0, step=0.1, group="Risk Management")
+
+// Scalping Settings
+scalpingMode = input.string("Moderate", "Scalping Mode", options=["Conservative", "Moderate", "Aggressive"], group="Scalping Settings")
+useTimeFilter = input.bool(true, "Use Time Filter (Avoid Low Volume Hours)", group="Scalping Settings")
+minBarsBetweenTrades = input.int(3, "Minimum Bars Between Trades", minval=1, maxval=20, group="Scalping Settings", tooltip="Prevents overtrading by requiring X bars since last exit")
+useCandlestickConfirmation = input.bool(true, "Require Candlestick Pattern Confirmation", group="Scalping Settings")
+
+// EMA Settings
+emaFast = input.int(8, "Fast EMA", minval=1, group="EMA Settings")
+emaMedium = input.int(21, "Medium EMA", minval=1, group="EMA Settings")
+emaSlow = input.int(50, "Slow EMA", minval=1, group="EMA Settings")
+emaVeryFast = input.int(5, "Very Fast EMA (Scalping)", minval=1, group="EMA Settings")
+
+// RSI Settings
+rsiLength = input.int(14, "RSI Length", minval=1, group="RSI Settings")
+rsiOverbought = input.int(70, "RSI Overbought", minval=50, maxval=90, group="RSI Settings")
+rsiOversold = input.int(30, "RSI Oversold", minval=10, maxval=50, group="RSI Settings")
+
+// MACD Settings
+macdFast = input.int(12, "MACD Fast", minval=1, group="MACD Settings")
+macdSlow = input.int(26, "MACD Slow", minval=1, group="MACD Settings")
+macdSignal = input.int(9, "MACD Signal", minval=1, group="MACD Settings")
+
+// Volume Settings
+volumeMultiplier = input.float(1.5, "Volume Spike Multiplier", minval=1.0, maxval=5.0, step=0.1, group="Volume Settings")
+volumeMA = input.int(20, "Volume MA Length", minval=1, group="Volume Settings")
+
+// Higher Timeframe Trend Filter
+useHTFFilter = input.bool(true, "Use Higher Timeframe Filter", group="Trend Filter")
+htfTimeframe = input.timeframe("15", "Higher Timeframe", group="Trend Filter")
+
+// Confirmation Settings
+minConfirmations = scalpingMode == "Aggressive" ? 3 : scalpingMode == "Moderate" ? 4 : 5
+
+// ============================================================================
+// INDICATOR CALCULATIONS
+// ============================================================================
+
+// EMAs
+emaVF = ta.ema(close, emaVeryFast)
+emaF = ta.ema(close, emaFast)
+emaM = ta.ema(close, emaMedium)
+emaS = ta.ema(close, emaSlow)
+
+// RSI
+rsi = ta.rsi(close, rsiLength)
+
+// MACD
+[macdLine, signalLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSignal)
+
+// Volume
+volMA = ta.sma(volume, volumeMA)
+volumeSpike = volume > volMA * volumeMultiplier
+
+// ATR for Stop Loss
+atr = ta.atr(14)
+
+// Higher Timeframe Trend
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+htfEma = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, emaMedium))
+htfTrendBullish = htfClose > htfEma
+htfTrendBearish = htfClose < htfEma
+
+// Momentum
+momentum = close - close[10]
+momentumPositive = momentum > 0
+momentumNegative = momentum < 0
+
+// Price Action
+bullishEngulfing = close > open and close[1] < open[1] and close > open[1] and open < close[1]
+bearishEngulfing = close < open and close[1] > open[1] and close < open[1] and open > close[1]
+
+// ============================================================================
+// SIGNAL CONDITIONS
+// ============================================================================
+
+// Long Conditions
+longCondition1 = emaVF > emaF and emaF > emaM  // Fast EMA alignment
+longCondition2 = close > emaM                   // Price above medium EMA
+longCondition3 = rsi > 40 and rsi < 70         // RSI in favorable zone
+longCondition4 = macdLine > signalLine          // MACD bullish
+longCondition5 = volumeSpike                    // Volume confirmation
+longCondition6 = momentumPositive               // Positive momentum
+longCondition7 = close > emaS                   // Price above slow EMA
+longCondition8 = bullishEngulfing               // Candlestick pattern
+longHTFConfirm = not useHTFFilter or htfTrendBullish
+
+// Count long confirmations
+longConfirmations = 0
+if longCondition1
+    longConfirmations += 1
+if longCondition2
+    longConfirmations += 1
+if longCondition3
+    longConfirmations += 1
+if longCondition4
+    longConfirmations += 1
+if longCondition5
+    longConfirmations += 1
+if longCondition6
+    longConfirmations += 1
+if longCondition7
+    longConfirmations += 1
+if longCondition8
+    longConfirmations += 1
+
+// Short Conditions
+shortCondition1 = emaVF < emaF and emaF < emaM  // Fast EMA alignment
+shortCondition2 = close < emaM                   // Price below medium EMA
+shortCondition3 = rsi < 60 and rsi > 30         // RSI in favorable zone
+shortCondition4 = macdLine < signalLine          // MACD bearish
+shortCondition5 = volumeSpike                    // Volume confirmation
+shortCondition6 = momentumNegative               // Negative momentum
+shortCondition7 = close < emaS                   // Price below slow EMA
+shortCondition8 = bearishEngulfing               // Candlestick pattern
+shortHTFConfirm = not useHTFFilter or htfTrendBearish
+
+// Count short confirmations
+shortConfirmations = 0
+if shortCondition1
+    shortConfirmations += 1
+if shortCondition2
+    shortConfirmations += 1
+if shortCondition3
+    shortConfirmations += 1
+if shortCondition4
+    shortConfirmations += 1
+if shortCondition5
+    shortConfirmations += 1
+if shortCondition6
+    shortConfirmations += 1
+if shortCondition7
+    shortConfirmations += 1
+if shortCondition8
+    shortConfirmations += 1
+
+// Time Filter (Avoid low liquidity hours - typically 0-4 UTC for crypto)
+timeFilter = not useTimeFilter or not (hour >= 0 and hour < 4)
+
+// Bars since last trade filter
+var int barsSinceLastTrade = 999
+if strategy.position_size[1] != 0 and strategy.position_size == 0
+    barsSinceLastTrade := 0
+else if strategy.position_size == 0
+    barsSinceLastTrade += 1
+
+cooldownPassed = barsSinceLastTrade >= minBarsBetweenTrades
+
+// Candlestick pattern confirmation (optional additional filter)
+candlestickConfirmLong = not useCandlestickConfirmation or (bullishEngulfing or (close > open and close > high[1]))
+candlestickConfirmShort = not useCandlestickConfirmation or (bearishEngulfing or (close < open and close < low[1]))
+
+// Final Entry Signals with additional filters
+longSignal = longConfirmations >= minConfirmations and longHTFConfirm and timeFilter and cooldownPassed and candlestickConfirmLong
+shortSignal = shortConfirmations >= minConfirmations and shortHTFConfirm and timeFilter and cooldownPassed and candlestickConfirmShort
+
+// ============================================================================
+// POSITION SIZING & RISK MANAGEMENT
+// ============================================================================
+
+// Calculate position size based on risk
+accountSize = strategy.equity
+riskAmount = accountSize * (riskPercent / 100)
+
+// Calculate stop loss distance
+stopLossDistance = useATRForSL ? atr * atrMultiplier : close * (fixedStopLoss / 100)
+
+// Calculate position size
+positionSize = riskAmount / stopLossDistance
+
+// Calculate take profit distance
+takeProfitDistance = stopLossDistance * riskRewardRatio
+
+// ============================================================================
+// STRATEGY EXECUTION
+// ============================================================================
+
+// Entry Logic
+if longSignal and strategy.position_size == 0
+    longStopPrice = close - stopLossDistance
+    longTakeProfit = close + takeProfitDistance
+    strategy.entry("Long", strategy.long, qty=positionSize)
+    strategy.exit("Long Exit", "Long", stop=longStopPrice, limit=longTakeProfit)
+
+if shortSignal and strategy.position_size == 0
+    shortStopPrice = close + stopLossDistance
+    shortTakeProfit = close - takeProfitDistance
+    strategy.entry("Short", strategy.short, qty=positionSize)
+    strategy.exit("Short Exit", "Short", stop=shortStopPrice, limit=shortTakeProfit)
+
+// Trailing Stop for Scalping (Optional aggressive exit)
+if scalpingMode == "Aggressive"
+    if strategy.position_size > 0
+        trailStopLong = close - (atr * 1.0)
+        strategy.exit("Trail Stop Long", "Long", stop=trailStopLong)
+    
+    if strategy.position_size < 0
+        trailStopShort = close + (atr * 1.0)
+        strategy.exit("Trail Stop Short", "Short", stop=trailStopShort)
+
+// Emergency Exit Conditions
+emergencyExitLong = strategy.position_size > 0 and (emaVF < emaM or rsi > rsiOverbought)
+emergencyExitShort = strategy.position_size < 0 and (emaVF > emaM or rsi < rsiOversold)
+
+if emergencyExitLong
+    strategy.close("Long", comment="Emergency Exit")
+
+if emergencyExitShort
+    strategy.close("Short", comment="Emergency Exit")
+
+// ============================================================================
+// VISUAL ELEMENTS
+// ============================================================================
+
+// Plot EMAs
+plot(emaVF, "Very Fast EMA", color=color.rgb(255, 235, 59), linewidth=1)
+plot(emaF, "Fast EMA", color=color.rgb(33, 150, 243), linewidth=2)
+plot(emaM, "Medium EMA", color=color.rgb(255, 152, 0), linewidth=2)
+plot(emaS, "Slow EMA", color=color.rgb(233, 30, 99), linewidth=2)
+
+// Plot Entry Signals
+plotshape(longSignal, "Long Signal", shape.triangleup, location.belowbar, color.rgb(0, 255, 0, 0), size=size.small)
+plotshape(shortSignal, "Short Signal", shape.triangledown, location.abovebar, color.rgb(255, 0, 0, 0), size=size.small)
+
+// Background color for trend
+trendColor = emaF > emaM ? color.new(color.green, 95) : color.new(color.red, 95)
+bgcolor(trendColor, title="Trend Background")
+
+// HTF Trend Indicator
+htfTrendColor = htfTrendBullish ? color.new(color.green, 70) : color.new(color.red, 70)
+plotshape(useHTFFilter, "HTF Trend", shape.square, location.top, htfTrendColor, size=size.tiny)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(longSignal, title="Long Entry Signal", message="🚀 LONG Signal: {{ticker}} at {{close}}")
+alertcondition(shortSignal, title="Short Entry Signal", message="🔻 SHORT Signal: {{ticker}} at {{close}}")
+alertcondition(emergencyExitLong, title="Emergency Exit Long", message="⚠️ Emergency Exit LONG: {{ticker}}")
+alertcondition(emergencyExitShort, title="Emergency Exit Short", message="⚠️ Emergency Exit SHORT: {{ticker}}")
+
+// ============================================================================
+// DASHBOARD (Info Panel)
+// ============================================================================
+
+var table infoTable = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 80), border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(infoTable, 0, 0, "Strategy Info", text_color=color.white, bgcolor=color.new(color.blue, 50))
+    table.cell(infoTable, 1, 0, "Value", text_color=color.white, bgcolor=color.new(color.blue, 50))
+    
+    // Mode
+    table.cell(infoTable, 0, 1, "Mode", text_color=color.white)
+    table.cell(infoTable, 1, 1, scalpingMode, text_color=color.yellow)
+    
+    // Confirmations
+    table.cell(infoTable, 0, 2, "Long Signals", text_color=color.white)
+    table.cell(infoTable, 1, 2, str.tostring(longConfirmations) + "/" + str.tostring(minConfirmations), 
+               text_color=longConfirmations >= minConfirmations ? color.lime : color.gray)
+    
+    table.cell(infoTable, 0, 3, "Short Signals", text_color=color.white)
+    table.cell(infoTable, 1, 3, str.tostring(shortConfirmations) + "/" + str.tostring(minConfirmations), 
+               text_color=shortConfirmations >= minConfirmations ? color.red : color.gray)
+    
+    // RSI
+    table.cell(infoTable, 0, 4, "RSI", text_color=color.white)
+    table.cell(infoTable, 1, 4, str.tostring(math.round(rsi, 2)), 
+               text_color=rsi > rsiOverbought ? color.red : rsi < rsiOversold ? color.lime : color.white)
+    
+    // HTF Trend
+    table.cell(infoTable, 0, 5, "HTF Trend", text_color=color.white)
+    table.cell(infoTable, 1, 5, htfTrendBullish ? "Bullish 🟢" : "Bearish 🔴", 
+               text_color=htfTrendBullish ? color.lime : color.red)
+    
+    // Volume Status
+    table.cell(infoTable, 0, 6, "Volume", text_color=color.white)
+    table.cell(infoTable, 1, 6, volumeSpike ? "High 📊" : "Normal", 
+               text_color=volumeSpike ? color.yellow : color.gray)
+    
+    // Current Position
+    table.cell(infoTable, 0, 7, "Position", text_color=color.white)
+    posText = strategy.position_size > 0 ? "LONG 🟢" : strategy.position_size < 0 ? "SHORT 🔴" : "None"
+    posColor = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(infoTable, 1, 7, posText, text_color=posColor)
+    
+    // Risk/Reward
+    table.cell(infoTable, 0, 8, "Risk/Reward", text_color=color.white)
+    table.cell(infoTable, 1, 8, "1:" + str.tostring(riskRewardRatio), text_color=color.aqua)
+    
+    // Stop Loss Type
+    table.cell(infoTable, 0, 9, "Stop Loss", text_color=color.white)
+    table.cell(infoTable, 1, 9, useATRForSL ? "ATR-Based" : "Fixed %", text_color=color.orange)
+    
+    // ATR Value
+    table.cell(infoTable, 0, 10, "ATR", text_color=color.white)
+    table.cell(infoTable, 1, 10, str.tostring(math.round(atr, 2)), text_color=color.white)
+    
+    // Time Filter Status
+    table.cell(infoTable, 0, 11, "Time Filter", text_color=color.white)
+    table.cell(infoTable, 1, 11, timeFilter ? "Active ✓" : "Filtered ✗", 
+               text_color=timeFilter ? color.lime : color.red)
