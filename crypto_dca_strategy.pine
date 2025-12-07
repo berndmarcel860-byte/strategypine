@@ -7,7 +7,8 @@ strategy("Professional Crypto DCA Strategy",
          default_qty_value=1000,
          commission_type=strategy.commission.percent,
          commission_value=0.075,
-         process_orders_on_close=false)
+         process_orders_on_close=true,
+         calc_on_every_tick=false)
 
 // ============================================================================
 // DCA STRATEGY - DOLLAR COST AVERAGING WITH TREND FOLLOWING
@@ -57,6 +58,9 @@ htfTimeframe = input.timeframe("240", "Higher Timeframe", group="Higher Timefram
 // DCA Mode
 dcaMode = input.string("Trend Following", "DCA Mode", options=["Trend Following", "Mean Reversion", "Hybrid"], group="DCA Mode", 
                        tooltip="Trend Following: Add on pullbacks in trend. Mean Reversion: Add as price moves against you. Hybrid: Combination")
+
+// Trade Frequency Control
+minBarsBetweenNewPositions = input.int(10, "Minimum Bars Between New Positions", minval=1, maxval=100, group="DCA Mode", tooltip="Prevents starting new DCA sequences too frequently")
 
 // ============================================================================
 // INDICATOR CALCULATIONS
@@ -117,9 +121,14 @@ var int longDCACount = 0
 var int shortDCACount = 0
 var float avgLongEntry = na
 var float avgShortEntry = na
+var int barsSinceLastClose = 999
 
 // Reset counters when position is closed
 if strategy.position_size == 0
+    if strategy.position_size[1] != 0
+        barsSinceLastClose := 0
+    else
+        barsSinceLastClose += 1
     longDCACount := 0
     shortDCACount := 0
     lastLongEntry := na
@@ -142,18 +151,23 @@ if strategy.position_size != 0
     if strategy.position_size < 0 and na(avgShortEntry)
         avgShortEntry := strategy.position_avg_price
 
-// Initial Entry Conditions
+// Cooldown check for new positions
+cooldownPassed = barsSinceLastClose >= minBarsBetweenNewPositions
+
+// Initial Entry Conditions (only when no position and cooldown passed)
 longEntryCondition = trendBullish and 
                      (not useADXFilter or strongTrend) and 
                      (not useRSIFilter or rsiNeutral) and
                      (not useVolumeFilter or volumeConfirm) and
-                     (not useHTFConfirm or htfBullish)
+                     (not useHTFConfirm or htfBullish) and
+                     cooldownPassed
 
 shortEntryCondition = trendBearish and 
                       (not useADXFilter or strongTrend) and 
                       (not useRSIFilter or rsiNeutral) and
                       (not useVolumeFilter or volumeConfirm) and
-                      (not useHTFConfirm or htfBearish)
+                      (not useHTFConfirm or htfBearish) and
+                      cooldownPassed
 
 // DCA Entry Conditions based on mode
 var bool longDCASignal = false

@@ -6,7 +6,9 @@ strategy("Professional Crypto Higher Timeframe Strategy",
          default_qty_type=strategy.cash, 
          default_qty_value=1000,
          commission_type=strategy.commission.percent,
-         commission_value=0.075)
+         commission_value=0.075,
+         process_orders_on_close=true,
+         calc_on_every_tick=false)
 
 // ============================================================================
 // STRATEGY INPUTS - OPTIMIZED FOR HIGHER TIMEFRAMES (4H, 1D, 1W)
@@ -49,6 +51,9 @@ useVolumeConfirmation = input.bool(true, "Require Volume Confirmation", group="V
 useMultiTF = input.bool(true, "Use Multi-Timeframe Analysis", group="Multi-Timeframe")
 htf1 = input.timeframe("D", "Higher Timeframe 1", group="Multi-Timeframe")
 htf2 = input.timeframe("W", "Higher Timeframe 2", group="Multi-Timeframe")
+
+// Trade Frequency Control
+minBarsBetweenTrades = input.int(5, "Minimum Bars Between Trades", minval=1, maxval=50, group="Trade Management", tooltip="Prevents overtrading")
 
 // ============================================================================
 // INDICATOR CALCULATIONS
@@ -164,9 +169,18 @@ shortTrigger = qualityFilterShort and bearVolume and (nearResistance or bearBB)
 ranging = not strongTrend or (adx < adxThreshold)
 avoidEntry = ranging and not bbExpansion
 
-// Final Entry Signals
-longEntry = longTrigger and not avoidEntry and strategy.position_size == 0
-shortEntry = shortTrigger and not avoidEntry and strategy.position_size == 0
+// Bars since last trade filter
+var int barsSinceLastTrade = 999
+if strategy.position_size[1] != 0 and strategy.position_size == 0
+    barsSinceLastTrade := 0
+else if strategy.position_size == 0
+    barsSinceLastTrade += 1
+
+cooldownPassed = barsSinceLastTrade >= minBarsBetweenTrades
+
+// Final Entry Signals with cooldown
+longEntry = longTrigger and not avoidEntry and strategy.position_size == 0 and cooldownPassed
+shortEntry = shortTrigger and not avoidEntry and strategy.position_size == 0 and cooldownPassed
 
 // ============================================================================
 // POSITION MANAGEMENT

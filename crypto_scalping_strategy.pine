@@ -6,7 +6,9 @@ strategy("Professional Crypto Futures Scalping Strategy",
          default_qty_type=strategy.cash, 
          default_qty_value=1000,
          commission_type=strategy.commission.percent,
-         commission_value=0.075)
+         commission_value=0.075,
+         process_orders_on_close=true,
+         calc_on_every_tick=false)
 
 // ============================================================================
 // STRATEGY INPUTS
@@ -20,8 +22,10 @@ atrMultiplier = input.float(1.5, "ATR Multiplier for SL", minval=0.5, maxval=5.0
 fixedStopLoss = input.float(2.0, "Fixed Stop Loss (%)", minval=0.1, maxval=10.0, step=0.1, group="Risk Management")
 
 // Scalping Settings
-scalpingMode = input.string("Aggressive", "Scalping Mode", options=["Conservative", "Moderate", "Aggressive"], group="Scalping Settings")
+scalpingMode = input.string("Moderate", "Scalping Mode", options=["Conservative", "Moderate", "Aggressive"], group="Scalping Settings")
 useTimeFilter = input.bool(true, "Use Time Filter (Avoid Low Volume Hours)", group="Scalping Settings")
+minBarsBetweenTrades = input.int(3, "Minimum Bars Between Trades", minval=1, maxval=20, group="Scalping Settings", tooltip="Prevents overtrading by requiring X bars since last exit")
+useCandlestickConfirmation = input.bool(true, "Require Candlestick Pattern Confirmation", group="Scalping Settings")
 
 // EMA Settings
 emaFast = input.int(8, "Fast EMA", minval=1, group="EMA Settings")
@@ -155,9 +159,22 @@ if shortCondition8
 // Time Filter (Avoid low liquidity hours - typically 0-4 UTC for crypto)
 timeFilter = not useTimeFilter or not (hour >= 0 and hour < 4)
 
-// Final Entry Signals
-longSignal = longConfirmations >= minConfirmations and longHTFConfirm and timeFilter
-shortSignal = shortConfirmations >= minConfirmations and shortHTFConfirm and timeFilter
+// Bars since last trade filter
+var int barsSinceLastTrade = 999
+if strategy.position_size[1] != 0 and strategy.position_size == 0
+    barsSinceLastTrade := 0
+else if strategy.position_size == 0
+    barsSinceLastTrade += 1
+
+cooldownPassed = barsSinceLastTrade >= minBarsBetweenTrades
+
+// Candlestick pattern confirmation (optional additional filter)
+candlestickConfirmLong = not useCandlestickConfirmation or (bullishEngulfing or (close > open and close > high[1]))
+candlestickConfirmShort = not useCandlestickConfirmation or (bearishEngulfing or (close < open and close < low[1]))
+
+// Final Entry Signals with additional filters
+longSignal = longConfirmations >= minConfirmations and longHTFConfirm and timeFilter and cooldownPassed and candlestickConfirmLong
+shortSignal = shortConfirmations >= minConfirmations and shortHTFConfirm and timeFilter and cooldownPassed and candlestickConfirmShort
 
 // ============================================================================
 // POSITION SIZING & RISK MANAGEMENT
