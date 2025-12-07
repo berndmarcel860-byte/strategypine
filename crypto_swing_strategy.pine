@@ -1,0 +1,346 @@
+//@version=5
+strategy("Professional Crypto Higher Timeframe Strategy", 
+         overlay=true, 
+         pyramiding=1, 
+         initial_capital=10000, 
+         default_qty_type=strategy.percent_of_equity, 
+         default_qty_value=50,
+         commission_type=strategy.commission.percent,
+         commission_value=0.075)
+
+// ============================================================================
+// STRATEGY INPUTS - OPTIMIZED FOR HIGHER TIMEFRAMES (4H, 1D, 1W)
+// ============================================================================
+
+// Risk Management
+riskPercent = input.float(2.0, "Risk Per Trade (%)", minval=0.5, maxval=10.0, step=0.5, group="Risk Management")
+riskRewardRatio = input.float(3.0, "Risk/Reward Ratio", minval=1.5, maxval=10.0, step=0.5, group="Risk Management")
+usePartialTP = input.bool(true, "Use Partial Take Profit", group="Risk Management")
+partialTPPercent = input.float(50.0, "Partial TP % of Position", minval=10, maxval=90, step=5, group="Risk Management")
+partialTPRatio = input.float(1.5, "Partial TP R:R", minval=1.0, maxval=3.0, step=0.25, group="Risk Management")
+
+// Moving Averages
+ema20 = input.int(20, "EMA 20", minval=1, group="Moving Averages")
+ema50 = input.int(50, "EMA 50", minval=1, group="Moving Averages")
+ema100 = input.int(100, "EMA 100", minval=1, group="Moving Averages")
+ema200 = input.int(200, "EMA 200", minval=1, group="Moving Averages")
+
+// Trend Strength
+adxLength = input.int(14, "ADX Length", minval=1, group="Trend Strength")
+adxThreshold = input.int(25, "ADX Threshold", minval=10, maxval=50, group="Trend Strength")
+
+// Volatility
+atrLength = input.int(14, "ATR Length", minval=1, group="Volatility")
+atrMultiplierSL = input.float(2.0, "ATR Multiplier for Stop Loss", minval=1.0, maxval=5.0, step=0.25, group="Volatility")
+bbLength = input.int(20, "Bollinger Bands Length", minval=1, group="Volatility")
+bbStdDev = input.float(2.0, "Bollinger Bands StdDev", minval=0.5, maxval=5.0, step=0.1, group="Volatility")
+
+// Momentum
+rsiLength = input.int(14, "RSI Length", minval=1, group="Momentum")
+stochLength = input.int(14, "Stochastic Length", minval=1, group="Momentum")
+stochK = input.int(3, "Stochastic %K", minval=1, group="Momentum")
+stochD = input.int(3, "Stochastic %D", minval=1, group="Momentum")
+
+// Volume Profile
+volumeMALength = input.int(20, "Volume MA Length", minval=1, group="Volume Analysis")
+useVolumeConfirmation = input.bool(true, "Require Volume Confirmation", group="Volume Analysis")
+
+// Multi-Timeframe
+useMultiTF = input.bool(true, "Use Multi-Timeframe Analysis", group="Multi-Timeframe")
+htf1 = input.timeframe("D", "Higher Timeframe 1", group="Multi-Timeframe")
+htf2 = input.timeframe("W", "Higher Timeframe 2", group="Multi-Timeframe")
+
+// ============================================================================
+// INDICATOR CALCULATIONS
+// ============================================================================
+
+// EMAs
+ema20Value = ta.ema(close, ema20)
+ema50Value = ta.ema(close, ema50)
+ema100Value = ta.ema(close, ema100)
+ema200Value = ta.ema(close, ema200)
+
+// ADX for Trend Strength
+[diPlus, diMinus, adx] = ta.dmi(adxLength, adxLength)
+strongTrend = adx > adxThreshold
+
+// ATR for Volatility
+atr = ta.atr(atrLength)
+
+// Bollinger Bands
+[bbMiddle, bbUpper, bbLower] = ta.bb(close, bbLength, bbStdDev)
+bbWidth = (bbUpper - bbLower) / bbMiddle
+bbExpansion = bbWidth > ta.sma(bbWidth, 20)
+
+// RSI
+rsi = ta.rsi(close, rsiLength)
+rsiMA = ta.sma(rsi, 14)
+rsiMomentum = rsi > rsiMA
+
+// Stochastic
+stochRSI = ta.stoch(rsi, rsi, rsi, stochLength)
+stochK_line = ta.sma(stochRSI, stochK)
+stochD_line = ta.sma(stochK_line, stochD)
+
+// MACD for Trend Confirmation
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+macdBullish = macdLine > macdSignal and macdHist > macdHist[1]
+macdBearish = macdLine < macdSignal and macdHist < macdHist[1]
+
+// Volume Analysis
+volMA = ta.sma(volume, volumeMALength)
+volIncrease = volume > volMA * 1.5
+buyingPressure = close > open and volume > volMA
+sellingPressure = close < open and volume > volMA
+
+// Price Action - Swing Highs/Lows
+swingHigh = ta.pivothigh(high, 5, 5)
+swingLow = ta.pivotlow(low, 5, 5)
+
+// Market Structure
+higherHigh = high > ta.highest(high[1], 10)
+higherLow = low > ta.lowest(low[1], 10)
+lowerHigh = high < ta.highest(high[1], 10)
+lowerLow = low < ta.lowest(low[1], 10)
+
+// Multi-Timeframe Analysis
+htf1_close = request.security(syminfo.tickerid, htf1, close)
+htf1_ema50 = request.security(syminfo.tickerid, htf1, ta.ema(close, 50))
+htf1_bullish = htf1_close > htf1_ema50
+
+htf2_close = request.security(syminfo.tickerid, htf2, close)
+htf2_ema50 = request.security(syminfo.tickerid, htf2, ta.ema(close, 50))
+htf2_bullish = htf2_close > htf2_ema50
+
+// Support and Resistance (using swing points)
+var float supportLevel = na
+var float resistanceLevel = na
+
+if not na(swingLow)
+    supportLevel := low[5]
+if not na(swingHigh)
+    resistanceLevel := high[5]
+
+nearSupport = not na(supportLevel) and close < supportLevel * 1.02 and close > supportLevel * 0.98
+nearResistance = not na(resistanceLevel) and close > resistanceLevel * 0.98 and close < resistanceLevel * 1.02
+
+// ============================================================================
+// ENTRY CONDITIONS - HIGHER TIMEFRAME FOCUS
+// ============================================================================
+
+// Bullish Setup
+bullTrend = ema20Value > ema50Value and ema50Value > ema100Value
+bullMomentum = rsi > 50 and rsiMomentum
+bullVolume = not useVolumeConfirmation or buyingPressure
+bullADX = strongTrend and diPlus > diMinus
+bullMACD = macdBullish
+bullPrice = close > ema20Value and close > ema50Value
+bullStructure = higherHigh or higherLow
+bullHTF = not useMultiTF or (htf1_bullish and htf2_bullish)
+bullStoch = stochK_line > stochD_line and stochK_line < 80
+bullBB = close > bbMiddle or close > bbLower
+
+// Bearish Setup
+bearTrend = ema20Value < ema50Value and ema50Value < ema100Value
+bearMomentum = rsi < 50 and not rsiMomentum
+bearVolume = not useVolumeConfirmation or sellingPressure
+bearADX = strongTrend and diMinus > diPlus
+bearMACD = macdBearish
+bearPrice = close < ema20Value and close < ema50Value
+bearStructure = lowerHigh or lowerLow
+bearHTF = not useMultiTF or (not htf1_bullish and not htf2_bullish)
+bearStoch = stochK_line < stochD_line and stochK_line > 20
+bearBB = close < bbMiddle or close < bbUpper
+
+// Quality Filters
+qualityFilterLong = bullTrend and bullMomentum and bullADX and (bullMACD or bullStoch) and bullHTF
+qualityFilterShort = bearTrend and bearMomentum and bearADX and (bearMACD or bearStoch) and bearHTF
+
+// Entry Triggers
+longTrigger = qualityFilterLong and bullVolume and (nearSupport or bullBB)
+shortTrigger = qualityFilterShort and bearVolume and (nearResistance or bearBB)
+
+// Prevent entries in ranging markets
+ranging = not strongTrend or (adx < adxThreshold)
+avoidEntry = ranging and not bbExpansion
+
+// Final Entry Signals
+longEntry = longTrigger and not avoidEntry and strategy.position_size == 0
+shortEntry = shortTrigger and not avoidEntry and strategy.position_size == 0
+
+// ============================================================================
+// POSITION MANAGEMENT
+// ============================================================================
+
+// Calculate Stop Loss
+longStopLoss = close - (atr * atrMultiplierSL)
+shortStopLoss = close + (atr * atrMultiplierSL)
+
+// Calculate Take Profit
+longTP1 = close + (atr * atrMultiplierSL * partialTPRatio)
+longTP2 = close + (atr * atrMultiplierSL * riskRewardRatio)
+
+shortTP1 = close - (atr * atrMultiplierSL * partialTPRatio)
+shortTP2 = close - (atr * atrMultiplierSL * riskRewardRatio)
+
+// ============================================================================
+// STRATEGY EXECUTION
+// ============================================================================
+
+// Long Entry
+if longEntry
+    strategy.entry("Long", strategy.long)
+    if usePartialTP
+        strategy.exit("Long TP1", "Long", limit=longTP1, stop=longStopLoss, qty_percent=partialTPPercent)
+        strategy.exit("Long TP2", "Long", limit=longTP2, stop=longStopLoss)
+    else
+        strategy.exit("Long Exit", "Long", limit=longTP2, stop=longStopLoss)
+
+// Short Entry
+if shortEntry
+    strategy.entry("Short", strategy.short)
+    if usePartialTP
+        strategy.exit("Short TP1", "Short", limit=shortTP1, stop=shortStopLoss, qty_percent=partialTPPercent)
+        strategy.exit("Short TP2", "Short", limit=shortTP2, stop=shortStopLoss)
+    else
+        strategy.exit("Short Exit", "Short", limit=shortTP2, stop=shortStopLoss)
+
+// Trailing Stop for winning positions
+if strategy.position_size > 0
+    trailPrice = ema20Value
+    if close > strategy.position_avg_price * 1.02 and trailPrice > strategy.position_avg_price
+        strategy.exit("Trail Long", "Long", stop=trailPrice)
+
+if strategy.position_size < 0
+    trailPrice = ema20Value
+    if close < strategy.position_avg_price * 0.98 and trailPrice < strategy.position_avg_price
+        strategy.exit("Trail Short", "Short", stop=trailPrice)
+
+// Emergency Exit on Trend Reversal
+exitLongSignal = strategy.position_size > 0 and (close < ema50Value or (macdLine < macdSignal and macdHist < 0))
+exitShortSignal = strategy.position_size < 0 and (close > ema50Value or (macdLine > macdSignal and macdHist > 0))
+
+if exitLongSignal
+    strategy.close("Long", comment="Trend Reversal")
+
+if exitShortSignal
+    strategy.close("Short", comment="Trend Reversal")
+
+// ============================================================================
+// VISUAL ELEMENTS
+// ============================================================================
+
+// Plot EMAs
+plot(ema20Value, "EMA 20", color=color.rgb(33, 150, 243), linewidth=2)
+plot(ema50Value, "EMA 50", color=color.rgb(255, 152, 0), linewidth=2)
+plot(ema100Value, "EMA 100", color=color.rgb(156, 39, 176), linewidth=2)
+plot(ema200Value, "EMA 200", color=color.rgb(244, 67, 54), linewidth=3)
+
+// Plot Bollinger Bands
+p1 = plot(bbUpper, "BB Upper", color=color.new(color.gray, 50))
+p2 = plot(bbLower, "BB Lower", color=color.new(color.gray, 50))
+fill(p1, p2, color=color.new(color.gray, 90))
+
+// Plot Support/Resistance
+plot(supportLevel, "Support", color=color.new(color.green, 50), linewidth=1, style=plot.style_cross)
+plot(resistanceLevel, "Resistance", color=color.new(color.red, 50), linewidth=1, style=plot.style_cross)
+
+// Entry Signals
+plotshape(longEntry, "Long Entry", shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.normal)
+plotshape(shortEntry, "Short Entry", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.normal)
+
+// Trend Background
+trendBgColor = bullTrend and strongTrend ? color.new(color.green, 97) : 
+               bearTrend and strongTrend ? color.new(color.red, 97) : 
+               color.new(color.gray, 98)
+bgcolor(trendBgColor, title="Trend Background")
+
+// ============================================================================
+// INFORMATION PANEL
+// ============================================================================
+
+var table dashboard = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, 85), border_width=1)
+
+if barstate.islast
+    // Header
+    table.cell(dashboard, 0, 0, "HTF Strategy", text_color=color.white, bgcolor=color.new(color.purple, 40), text_size=size.normal)
+    table.cell(dashboard, 1, 0, "Status", text_color=color.white, bgcolor=color.new(color.purple, 40), text_size=size.normal)
+    
+    // Timeframe
+    table.cell(dashboard, 0, 1, "Timeframe", text_color=color.white)
+    table.cell(dashboard, 1, 1, timeframe.period, text_color=color.yellow)
+    
+    // Current Trend
+    table.cell(dashboard, 0, 2, "Trend", text_color=color.white)
+    trendText = bullTrend ? "BULLISH 🟢" : bearTrend ? "BEARISH 🔴" : "RANGING 🟡"
+    trendColor = bullTrend ? color.lime : bearTrend ? color.red : color.yellow
+    table.cell(dashboard, 1, 2, trendText, text_color=trendColor)
+    
+    // ADX Strength
+    table.cell(dashboard, 0, 3, "ADX", text_color=color.white)
+    table.cell(dashboard, 1, 3, str.tostring(math.round(adx, 1)) + (strongTrend ? " 💪" : " 😴"), 
+               text_color=strongTrend ? color.lime : color.gray)
+    
+    // RSI
+    table.cell(dashboard, 0, 4, "RSI", text_color=color.white)
+    table.cell(dashboard, 1, 4, str.tostring(math.round(rsi, 1)), 
+               text_color=rsi > 70 ? color.red : rsi < 30 ? color.lime : color.white)
+    
+    // HTF Alignment
+    table.cell(dashboard, 0, 5, "HTF1 (" + htf1 + ")", text_color=color.white)
+    table.cell(dashboard, 1, 5, htf1_bullish ? "Bull 🟢" : "Bear 🔴", 
+               text_color=htf1_bullish ? color.lime : color.red)
+    
+    table.cell(dashboard, 0, 6, "HTF2 (" + htf2 + ")", text_color=color.white)
+    table.cell(dashboard, 1, 6, htf2_bullish ? "Bull 🟢" : "Bear 🔴", 
+               text_color=htf2_bullish ? color.lime : color.red)
+    
+    // Volume
+    table.cell(dashboard, 0, 7, "Volume", text_color=color.white)
+    volStatus = volIncrease ? "High 📊" : "Normal"
+    table.cell(dashboard, 1, 7, volStatus, text_color=volIncrease ? color.yellow : color.gray)
+    
+    // BB Width
+    table.cell(dashboard, 0, 8, "Volatility", text_color=color.white)
+    volText = bbExpansion ? "Expanding 📈" : "Contracting 📉"
+    table.cell(dashboard, 1, 8, volText, text_color=bbExpansion ? color.orange : color.blue)
+    
+    // Market Structure
+    table.cell(dashboard, 0, 9, "Structure", text_color=color.white)
+    structureText = higherHigh or higherLow ? "HH/HL 📈" : lowerHigh or lowerLow ? "LH/LL 📉" : "Neutral"
+    structureColor = higherHigh or higherLow ? color.lime : lowerHigh or lowerLow ? color.red : color.gray
+    table.cell(dashboard, 1, 9, structureText, text_color=structureColor)
+    
+    // Position
+    table.cell(dashboard, 0, 10, "Position", text_color=color.white)
+    posText = strategy.position_size > 0 ? "LONG 🟢" : strategy.position_size < 0 ? "SHORT 🔴" : "None"
+    posColor = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(dashboard, 1, 10, posText, text_color=posColor)
+    
+    // P&L
+    if strategy.position_size != 0
+        table.cell(dashboard, 0, 11, "Unrealized P&L", text_color=color.white)
+        pnlPercent = ((close - strategy.position_avg_price) / strategy.position_avg_price) * 100 * math.sign(strategy.position_size)
+        pnlText = str.tostring(math.round(pnlPercent, 2)) + "%"
+        pnlColor = pnlPercent > 0 ? color.lime : color.red
+        table.cell(dashboard, 1, 11, pnlText, text_color=pnlColor)
+    else
+        table.cell(dashboard, 0, 11, "Unrealized P&L", text_color=color.white)
+        table.cell(dashboard, 1, 11, "0.00%", text_color=color.gray)
+    
+    // Risk/Reward
+    table.cell(dashboard, 0, 12, "R:R Ratio", text_color=color.white)
+    table.cell(dashboard, 1, 12, "1:" + str.tostring(riskRewardRatio), text_color=color.aqua)
+    
+    // ATR
+    table.cell(dashboard, 0, 13, "ATR", text_color=color.white)
+    table.cell(dashboard, 1, 13, str.tostring(math.round(atr, 4)), text_color=color.white)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(longEntry, "Long Entry Alert", "🚀 LONG Entry: {{ticker}} @ {{close}} | HTF Strategy")
+alertcondition(shortEntry, "Short Entry Alert", "🔻 SHORT Entry: {{ticker}} @ {{close}} | HTF Strategy")
+alertcondition(exitLongSignal, "Exit Long Alert", "⚠️ Exit LONG: {{ticker}} | Trend Reversal")
+alertcondition(exitShortSignal, "Exit Short Alert", "⚠️ Exit SHORT: {{ticker}} | Trend Reversal")
