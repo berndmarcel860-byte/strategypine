@@ -82,7 +82,8 @@ trendBearish = trendMethod == "EMA" ? (emaFastLine < emaSlowLine and close < ema
                supertrendBearish
 
 // ADX for Trend Strength
-[diPlus, diMinus, adx] = ta.dmi(14, 14)
+adxLength = 14
+[diPlus, diMinus, adx] = ta.dmi(adxLength, adxLength)
 strongTrend = adx > adxThreshold
 
 // RSI

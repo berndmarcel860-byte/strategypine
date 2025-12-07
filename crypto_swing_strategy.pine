@@ -203,8 +203,10 @@ shortTP2 = close - (atr * atrMultiplierSL * riskRewardRatio)
 if longEntry
     strategy.entry("Long", strategy.long, qty=positionSizeLong)
     if usePartialTP
-        strategy.exit("Long TP1", "Long", limit=longTP1, stop=longStopLoss, qty_percent=partialTPPercent)
-        strategy.exit("Long TP2", "Long", limit=longTP2, stop=longStopLoss)
+        partialQtyLong = positionSizeLong * (partialTPPercent / 100)
+        remainingQtyLong = positionSizeLong - partialQtyLong
+        strategy.exit("Long TP1", "Long", limit=longTP1, stop=longStopLoss, qty=partialQtyLong)
+        strategy.exit("Long TP2", "Long", limit=longTP2, stop=longStopLoss, qty=remainingQtyLong)
     else
         strategy.exit("Long Exit", "Long", limit=longTP2, stop=longStopLoss)
 
@@ -212,8 +214,10 @@ if longEntry
 if shortEntry
     strategy.entry("Short", strategy.short, qty=positionSizeShort)
     if usePartialTP
-        strategy.exit("Short TP1", "Short", limit=shortTP1, stop=shortStopLoss, qty_percent=partialTPPercent)
-        strategy.exit("Short TP2", "Short", limit=shortTP2, stop=shortStopLoss)
+        partialQtyShort = positionSizeShort * (partialTPPercent / 100)
+        remainingQtyShort = positionSizeShort - partialQtyShort
+        strategy.exit("Short TP1", "Short", limit=shortTP1, stop=shortStopLoss, qty=partialQtyShort)
+        strategy.exit("Short TP2", "Short", limit=shortTP2, stop=shortStopLoss, qty=remainingQtyShort)
     else
         strategy.exit("Short Exit", "Short", limit=shortTP2, stop=shortStopLoss)
 
