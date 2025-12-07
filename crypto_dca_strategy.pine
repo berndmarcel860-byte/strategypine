@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 strategy("Professional Crypto DCA Strategy", 
          overlay=true, 
          pyramiding=10,
@@ -459,8 +459,8 @@ alertcondition(longEntryCondition and strategy.position_size == 0, "Initial Long
 alertcondition(shortEntryCondition and strategy.position_size == 0, "Initial Short Entry", 
                "🔻 DCA Initial SHORT: {{ticker}} @ {{close}}")
 alertcondition(longDCASignal, "DCA Long Add", 
-               "➕ DCA Add LONG: {{ticker}} @ {{close}} | Level: " + str.tostring(longDCACount))
+               "➕ DCA Add LONG: {{ticker}} @ {{close}}")
 alertcondition(shortDCASignal, "DCA Short Add", 
-               "➕ DCA Add SHORT: {{ticker}} @ {{close}} | Level: " + str.tostring(shortDCACount))
+               "➕ DCA Add SHORT: {{ticker}} @ {{close}}")
 alertcondition(trendReversalLong or trendReversalShort, "Trend Reversal Exit", 
                "⚠️ DCA Exit: Trend Reversal on {{ticker}}")

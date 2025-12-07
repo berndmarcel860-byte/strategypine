@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 strategy("Professional Crypto Futures Scalping Strategy", 
          overlay=true, 
          pyramiding=0, 
