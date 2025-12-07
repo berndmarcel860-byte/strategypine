@@ -1,23 +1,90 @@
 # Professional Crypto Trading Strategies for TradingView
 
-This repository contains three professional Pine Script strategies designed for cryptocurrency futures trading, optimized for different timeframes and trading styles.
+This repository contains four professional Pine Script strategies designed for cryptocurrency futures trading, optimized for different timeframes and trading styles.
 
 ## 📊 Strategies Overview
 
-### 1. Crypto Scalping Strategy (`crypto_scalping_strategy.pine`)
+### 1. Advanced Multi-Indicator Strategy (`crypto_advanced_multi_indicator.pine`) ⭐ **RECOMMENDED**
+**Best for:** 5m, 15m, 1H, 4H timeframes  
+**Trading Style:** High-quality setups with 10-point scoring system  
+**Risk Profile:** Very selective, only trades with 7+ confirmations out of 10  
+**Win Rate Target:** 55-65% with excellent risk/reward
+
+### 2. Crypto Scalping Strategy (`crypto_scalping_strategy.pine`)
 **Best for:** 1m, 5m, 15m, 30m timeframes  
 **Trading Style:** Fast-paced scalping with multiple quick trades  
 **Risk Profile:** Lower risk per trade, higher frequency
 
-### 2. Crypto Swing/Higher Timeframe Strategy (`crypto_swing_strategy.pine`)
+### 3. Crypto Swing/Higher Timeframe Strategy (`crypto_swing_strategy.pine`)
 **Best for:** 4H, 1D, 1W timeframes  
 **Trading Style:** Swing trading with position holding for days/weeks  
 **Risk Profile:** Higher risk per trade, lower frequency, better risk/reward
 
-### 3. Crypto DCA Strategy (`crypto_dca_strategy.pine`) ⭐ NEW
+### 4. Crypto DCA Strategy (`crypto_dca_strategy.pine`)
 **Best for:** 15m, 1H, 4H, 1D timeframes  
 **Trading Style:** Dollar Cost Averaging with multiple entries based on trend  
 **Risk Profile:** Pyramiding into positions, controlled risk per level, excellent for trending markets
+
+---
+
+## ⭐ Advanced Multi-Indicator Strategy Features (NEW)
+
+### Why This Strategy is Better
+
+This strategy was specifically designed to address profitability issues by using a **10-point scoring system** that only enters trades when 7 or more confirmations align. This dramatically improves win rates and reduces losses.
+
+### Multiple Indicator Confirmations
+
+**Trend Analysis (2 points):**
+- 4 EMAs (9, 21, 55, 200) must align
+- Price must be above/below EMA 200 for direction
+
+**Momentum (2 points):**
+- RSI in optimal zones (not overbought/oversold)
+- Stochastic alignment
+- MACD histogram increasing
+
+**Supertrend (2 points):**
+- Price must be on correct side of Supertrend line
+- Supertrend direction confirmed
+
+**Volatility & Volume (2 points):**
+- ADX > 25 (strong trend required)
+- Bollinger Bands expansion
+- Volume spike or directional volume
+
+**Advanced Features (2 points):**
+- Candlestick pattern recognition (Engulfing, Hammer, Morning/Evening Star)
+- RSI divergence detection (bullish/bearish)
+- Higher timeframe alignment
+
+### Smart Risk Management
+
+- **Scoring threshold:** Requires 7/10 points to enter (70% confidence)
+- **Daily trade limit:** Max 3 trades per day (prevents overtrading)
+- **Cooldown period:** 5 bars minimum between trades
+- **Dynamic position sizing:** Based on account risk % and ATR
+- **Trailing stop:** Protects profits as trade moves favorably
+- **Emergency exit:** Closes position if opposite signal scores 8+
+
+### Visual Dashboard
+
+Real-time scoring system shows:
+- Long Score: X/10 (green if ≥7)
+- Short Score: X/10 (red if ≥7)
+- Current trend strength and direction
+- ADX, RSI, Supertrend status
+- Higher timeframe alignment
+- Trades used today
+- Cooldown status
+
+### Entry Requirements
+
+✅ Score must be ≥ 7 out of 10  
+✅ No existing position  
+✅ Cooldown period passed  
+✅ Daily trade limit not exceeded  
+✅ All stops and targets automatically placed
 
 ---
 
